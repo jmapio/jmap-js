@@ -2,6 +2,8 @@
 
 JMAP-JS is an implementation of the JMAP mail, contacts and calendars model. JMAP is a new, very efficient protocol for synchronising mail, calendars and contacts with a server. Learn more at http://jmap.io
 
+JMAP is MIT licensed. Please see the LICENSE file in the repository for full details.
+
 ## Dependencies
 
 JMAP-JS requires the [Overture](https://github.com/fastmail/overture) library's core, foundation, datastore, io, timezones, ua and localisation modules.
@@ -10,7 +12,7 @@ To build the time zone data you will need a copy of the [Olsen database](https:/
 
 ## Usage guide
 
-This guide is intended to get you up and running with your own JMAP client as quickly as possible. Everything used in the [demo JMAP webmail](https://proxy.jmap.io) is covered; looking at the source code of this is also a great way to learn how to use the library.
+This guide is intended to get you up and running with your own JMAP client as quickly as possible. Everything used in the [demo JMAP webmail](https://proxy.jmap.io) is covered; looking at [the source code of this](https://github.com/jmapio/jmap-demo-webmail) is also a great way to learn how to use the library.
 
 At some point you'll probably want to extend the classes with custom methods, or extra attributes, or need to do something crazier; if this happens, you might want to consult the [documentation for the Overture library](http://overturejs.com/docs/) for details of the underlying framework this is built on.
 
