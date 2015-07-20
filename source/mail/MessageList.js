@@ -29,8 +29,22 @@ var EMPTY_SNIPPET = {
     body: ' '
 };
 
+var stringifySorted = function ( item ) {
+    if ( !item || ( typeof item !== 'object' ) ) {
+        return JSON.stringify( item );
+    }
+    if ( item instanceof Array ) {
+        return '[' + item.map( stringifySorted ).join( ',' ) + ']';
+    }
+    var keys = Object.keys( item );
+    keys.sort();
+    return '{' + keys.map( function ( key ) {
+        return '"' + key + '":' + stringifySorted( item[ key ] );
+    }).join( ',' ) + '}';
+};
+
 var getId = function ( args ) {
-    return 'ml:' + JSON.stringify( args.filter ) +
+    return 'ml:' + stringifySorted( args.filter ) +
         ( args.collapseThreads ? '+' : '-' );
 };
 
