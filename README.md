@@ -10,6 +10,10 @@ JMAP-JS requires the [Overture](https://github.com/fastmail/overture) library's 
 
 To build the time zone data you will need a copy of the [Olsen database](https://www.iana.org/time-zones). There is a script included with Overture to convert the raw data into the required format.
 
+## Building
+
+To build the library, run `make build`. You must have [node](https://nodejs.org) installed, but there are no other build dependencies.
+
 ## Usage guide
 
 This guide is intended to get you up and running with your own JMAP client as quickly as possible. Everything used in the [demo JMAP webmail](https://proxy.jmap.io) is covered; looking at [the source code of this](https://github.com/jmapio/jmap-demo-webmail) is also a great way to learn how to use the library.
