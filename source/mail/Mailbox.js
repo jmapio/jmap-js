@@ -56,13 +56,34 @@ var Mailbox = O.Class({
 
     // ---
 
-    mustBeOnlyMailbox: attr( Boolean ),
-    mayReadItems: attr( Boolean ),
-    mayAddItems: attr( Boolean ),
-    mayRemoveItems: attr( Boolean ),
-    mayCreateChild: attr( Boolean ),
-    mayRename: attr( Boolean ),
-    mayDelete: attr( Boolean ),
+    mustBeOnlyMailbox: attr( Boolean, {
+        defaultValue: true,
+        noSync: true
+    }),
+    mayReadItems: attr( Boolean, {
+        defaultValue: true,
+        noSync: true
+    }),
+    mayAddItems: attr( Boolean, {
+        defaultValue: true,
+        noSync: true
+    }),
+    mayRemoveItems: attr( Boolean, {
+        defaultValue: true,
+        noSync: true
+    }),
+    mayCreateChild: attr( Boolean, {
+        defaultValue: true,
+        noSync: true
+    }),
+    mayRename: attr( Boolean, {
+        defaultValue: true,
+        noSync: true
+    }),
+    mayDelete: attr( Boolean, {
+        defaultValue: true,
+        noSync: true
+    }),
 
     // ---
 
