@@ -112,6 +112,8 @@ var Thread = O.Class({
     }.property( 'messages' ).nocache()
 });
 
+JMAP.mail.threadUpdateFetchRecords = true;
+JMAP.mail.threadUpdateMaxChanges = 30;
 JMAP.mail.handle( Thread, {
     fetch: function ( ids ) {
         this.callMethod( 'getThreads', {
@@ -126,8 +128,8 @@ JMAP.mail.handle( Thread, {
         } else {
             this.callMethod( 'getThreadUpdates', {
                 sinceState: state,
-                maxChanges: 30,
-                fetchRecords: true
+                maxChanges: this.threadUpdateMaxChanges,
+                fetchRecords: this.threadUpdateFetchRecords
             });
         }
     },
@@ -135,13 +137,35 @@ JMAP.mail.handle( Thread, {
     threads: function ( args ) {
         this.didFetch( Thread, args );
     },
-    threadUpdates: function ( args ) {
+    threadUpdates: function ( args, _, reqArgs ) {
         this.didFetchUpdates( Thread, args );
+        if ( !reqArgs.fetchRecords ) {
+            this.recalculateAllFetchedWindows();
+        }
+        if ( args.hasMoreUpdates ) {
+            var threadUpdateMaxChanges = this.threadUpdateMaxChanges;
+            if ( threadUpdateMaxChanges < 120 ) {
+                if ( threadUpdateMaxChanges === 30 ) {
+                    // Keep fetching updates, just without records
+                    this.threadUpdateFetchRecords = false;
+                    this.threadUpdateMaxChanges = 100;
+                } else {
+                    this.threadUpdateMaxChanges = 120;
+                }
+                this.get( 'store' ).fetchAll( Thread, true );
+                return;
+            } else {
+                // We've fetched 250 updates and there's still more. Let's give
+                // up and reset.
+                this.response
+                    .error_getThreadUpdates_cannotCalculateChanges
+                    .call( this, args );
+            }
+        }
+        this.threadUpdateFetchRecords = true;
+        this.threadUpdateMaxChanges = 30;
     },
-    error_getThreadUpdates_cannotCalculateChanges: function () {
-        this.response.error_getThreadUpdates_tooManyChanges.call( this );
-    },
-    error_getThreadUpdates_tooManyChanges: function () {
+    error_getThreadUpdates_cannotCalculateChanges: function ( args ) {
         var store = this.get( 'store' );
         // All our data may be wrong. Unload if possible, otherwise mark
         // obsolete.
@@ -150,12 +174,10 @@ JMAP.mail.handle( Thread, {
                 thread.setObsolete();
             }
         });
-        // Mark all message lists as needing to recheck if window is fetched.
-        store.getAllRemoteQueries().forEach( function ( query ) {
-            if ( query instanceof JMAP.MessageList ) {
-                query.recalculateFetchedWindows();
-            }
-        });
+        this.recalculateAllFetchedWindows();
+        // Tell the store we're now in the new state.
+        store.sourceDidFetchUpdates(
+            Thread, null, null, store.getTypeState( Thread ), args.newState );
     }
 });
 

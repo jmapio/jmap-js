@@ -153,6 +153,7 @@ JMAP.contacts.handle( Contact, {
     refresh: function ( _, state ) {
         this.callMethod( 'getContactUpdates', {
             sinceState: state,
+            maxChanges: 100,
             fetchRecords: true
         });
     },
@@ -163,6 +164,9 @@ JMAP.contacts.handle( Contact, {
     },
     contactUpdates: function ( args ) {
         this.didFetchUpdates( Contact, args );
+        if ( args.hasMoreUpdates ) {
+            this.get( 'store' ).fetchAll( Contact, true );
+        }
     },
     error_getContactUpdates_cannotCalculateChanges: function () {
         // All our data may be wrong. Refetch everything.

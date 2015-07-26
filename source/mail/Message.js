@@ -164,6 +164,8 @@ JMAP.mail.handle( MessageDetails, {
     }
 });
 
+JMAP.mail.messageUpdateFetchRecords = true;
+JMAP.mail.messageUpdateMaxChanges = 50;
 JMAP.mail.handle( Message, {
     fetch: function ( ids ) {
         this.callMethod( 'getMessages', {
@@ -185,11 +187,13 @@ JMAP.mail.handle( Message, {
                 ]
             });
         } else {
+            var messageUpdateFetchRecords = this.messageUpdateFetchRecords;
             this.callMethod( 'getMessageUpdates', {
                 sinceState: state,
-                maxChanges: 50,
-                fetchRecords: true,
-                fetchRecordProperties: Message.headerProperties
+                maxChanges: this.messageUpdateMaxChanges,
+                fetchRecords: messageUpdateFetchRecords,
+                fetchRecordProperties: messageUpdateFetchRecords ?
+                    Message.headerProperties : null
             });
         }
     },
@@ -211,24 +215,47 @@ JMAP.mail.handle( Message, {
                 .sourceDidFetchPartialRecords( Message, updates );
         }
     },
-    messageUpdates: function ( args ) {
+    messageUpdates: function ( args, _, reqArgs ) {
         this.didFetchUpdates( Message, args );
+        if ( !reqArgs.fetchRecords ) {
+            this.recalculateAllFetchedWindows();
+        }
+        if ( args.hasMoreUpdates ) {
+            var messageUpdateMaxChanges = this.messageUpdateMaxChanges;
+            if ( messageUpdateMaxChanges < 150 ) {
+                if ( messageUpdateMaxChanges === 50 ) {
+                    // Keep fetching updates, just without records
+                    this.messageUpdateFetchRecords = false;
+                    this.messageUpdateMaxChanges = 100;
+                } else {
+                    this.messageUpdateMaxChanges = 150;
+                }
+                this.get( 'store' ).fetchAll( Message, true );
+                return;
+            } else {
+                // We've fetched 300 updates and there's still more. Let's give
+                // up and reset.
+                this.response
+                    .error_getMessageUpdates_cannotCalculateChanges
+                    .call( this, args );
+            }
+        }
+        this.messageUpdateFetchRecords = true;
+        this.messageUpdateMaxChanges = 50;
     },
-    error_getMessageUpdates_cannotCalculateChanges: function () {
-        this.response.error_getMessageUpdates_tooManyChanges.call( this );
-    },
-    error_getMessageUpdates_tooManyChanges: function () {
+    error_getMessageUpdates_cannotCalculateChanges: function ( args ) {
         var store = this.get( 'store' );
         // All our data may be wrong. Mark all messages as obsolete.
+        // The garbage collector will eventually clean up any messages that
+        // no longer exist
         store.getAll( Message ).forEach( function ( message ) {
             message.setObsolete();
         });
-        // Mark all message lists as needing to recheck if window is fetched.
-        store.getAllRemoteQueries().forEach( function ( query ) {
-            if ( query instanceof JMAP.MessageList ) {
-                query.recalculateFetchedWindows();
-            }
-        });
+        this.recalculateAllFetchedWindows();
+        // Tell the store we're now in the new state.
+        store.sourceDidFetchUpdates(
+            Message, null, null, store.getTypeState( Message ), args.newState );
+
     },
     messagesSet: function ( args ) {
         this.didCommit( Message, args );

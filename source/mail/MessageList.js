@@ -326,6 +326,15 @@ JMAP.mail.handle( MessageList, {
     }
 });
 
+JMAP.mail.recalculateAllFetchedWindows = function () {
+    // Mark all message lists as needing to recheck if window is fetched.
+    this.get( 'store' ).getAllRemoteQueries().forEach( function ( query ) {
+        if ( query instanceof MessageList ) {
+            query.recalculateFetchedWindows();
+        }
+    });
+};
+
 MessageList.getId = getId;
 
 JMAP.MessageList = MessageList;

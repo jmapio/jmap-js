@@ -475,6 +475,7 @@ JMAP.calendar.handle( CalendarEvent, {
     refresh: function ( _, state ) {
         this.callMethod( 'getCalendarEventUpdates', {
             sinceState: state,
+            maxChanges: 100,
             fetchRecords: true
         });
     },
@@ -496,6 +497,12 @@ JMAP.calendar.handle( CalendarEvent, {
     },
     calendarEventUpdates: function ( args ) {
         this.didFetchUpdates( CalendarEvent, args );
+        if ( args.hasMoreUpdates ) {
+            this.get( 'store' ).fetchAll( CalendarEvent, true );
+        }
+    },
+    error_getCalendarEventUpdates_cannotCalculateChanges: function () {
+        JMAP.calendar.flushCache();
     },
     calendarEventsSet: function ( args ) {
         this.didCommit( CalendarEvent, args );

@@ -312,9 +312,6 @@ JMAP.calendar.handle( null, {
     calendarEventList: function () {
         // We don't care about the list, we only use it to fetch the
         // events we want. This may change with search in the future!
-    },
-    error_getCalendarEventUpdates_cannotCalculateChanges: function () {
-        JMAP.calendar.flushCache();
     }
 });
 
