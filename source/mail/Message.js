@@ -93,11 +93,11 @@ var Message = O.Class({
         if ( status !== undefined ) {
             return status;
         }
-        if ( this.get( 'rawUrl' ) || this.is( NEW ) ) {
+        if ( this.get( 'blobId' ) || this.is( NEW ) ) {
             return READY;
         }
         return EMPTY;
-    }.property( 'rawUrl' ),
+    }.property( 'blobId' ),
 
     fetchDetails: function () {
         if ( this.get( 'detailsStatus' ) === EMPTY ) {
@@ -105,9 +105,9 @@ var Message = O.Class({
         }
     },
 
-    inReplyToMessageId: attr( String ),
+    blobId: attr( String ),
 
-    rawUrl: attr( String ),
+    inReplyToMessageId: attr( String ),
 
     headers: attr( Object, {
         defaultValue: {}
@@ -140,8 +140,8 @@ var Message = O.Class({
         'preview'
     ],
     detailsProperties: [
+        'blobId',
         'inReplyToMessageId',
-        'rawUrl',
         'headers.List-Id',
         'headers.List-Post',
         'cc',
