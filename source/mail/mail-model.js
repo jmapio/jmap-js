@@ -255,7 +255,7 @@ var updateQueries = function ( filterTest, sortTest, deltas ) {
     // pre-emptively update it.
     var queries = store.getAllRemoteQueries();
     var l = queries.length;
-    var query, filter, sort, delta;
+    var query, filter, sort, delta, added, messageToThreadId, i, ll, item;
     while ( l-- ) {
         query = queries[l];
         if ( query instanceof MessageList ) {
@@ -264,10 +264,17 @@ var updateQueries = function ( filterTest, sortTest, deltas ) {
             if ( deltas && isFilteredJustOnMailbox( filter ) ) {
                 delta = deltas[ filter.inMailboxes[0] ];
                 if ( delta ) {
+                    added = calculatePreemptiveAdd( query, delta.added );
+                    messageToThreadId = query.get( 'messageToThreadId' );
                     query.clientDidGenerateUpdate({
-                        added: calculatePreemptiveAdd( query, delta.added ),
+                        added: added,
                         removed: delta.removed
                     });
+                    for ( i = 0, ll = added ? added.length : 0;
+                            i < ll; i += 1 ) {
+                        item = added[i];
+                        messageToThreadId[ item.messageId ] = item.threadId;
+                    }
                 }
             } else if ( filterTest( filter ) || sortTest( sort ) ) {
                 query.setObsolete();
