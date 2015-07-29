@@ -137,8 +137,8 @@ JMAP.calendar.handle( Calendar, {
         this.didFetch( Calendar, args,
             reqMethod === 'getCalendars' && !reqArgs.ids );
     },
-    calendarUpdates: function ( args ) {
-        this.didFetchUpdates( Calendar, args );
+    calendarUpdates: function ( args, _, reqArgs ) {
+        this.didFetchUpdates( Calendar, args, reqArgs );
     },
     error_getCalendarUpdates_cannotCalculateChanges: function () {
         // All our data may be wrong. Refetch everything.

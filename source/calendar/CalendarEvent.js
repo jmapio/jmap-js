@@ -495,8 +495,8 @@ JMAP.calendar.handle( CalendarEvent, {
         this.didFetch( CalendarEvent, args, this.replaceEvents );
         this.replaceEvents = false;
     },
-    calendarEventUpdates: function ( args ) {
-        this.didFetchUpdates( CalendarEvent, args );
+    calendarEventUpdates: function ( args, _, reqArgs ) {
+        this.didFetchUpdates( CalendarEvent, args, reqArgs );
         if ( args.hasMoreUpdates ) {
             this.get( 'store' ).fetchAll( CalendarEvent, true );
         }

@@ -884,10 +884,15 @@ var Connection = O.Class({
         }
     },
 
-    didFetchUpdates: function ( Type, args ) {
+    didFetchUpdates: function ( Type, args, reqArgs ) {
+        var hasDataForChanged = reqArgs.fetchRecords;
         this.get( 'store' )
-            .sourceDidFetchUpdates( Type, args.changed, args.removed,
-                args.oldState, args.newState );
+            .sourceDidFetchUpdates( Type,
+                hasDataForChanged ? null : args.changed,
+                args.removed,
+                args.oldState,
+                args.newState
+            );
     },
 
     didCommit: function ( Type, args ) {

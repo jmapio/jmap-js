@@ -138,7 +138,7 @@ JMAP.mail.handle( Thread, {
         this.didFetch( Thread, args );
     },
     threadUpdates: function ( args, _, reqArgs ) {
-        this.didFetchUpdates( Thread, args );
+        this.didFetchUpdates( Thread, args, reqArgs );
         if ( !reqArgs.fetchRecords ) {
             this.recalculateAllFetchedWindows();
         }

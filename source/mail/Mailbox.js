@@ -226,8 +226,8 @@ JMAP.mail.handle( Mailbox, {
             reqMethod === 'getMailboxes' && !reqArgs.ids );
     },
 
-    mailboxUpdates: function ( args ) {
-        this.didFetchUpdates( Mailbox, args );
+    mailboxUpdates: function ( args, _, reqArgs ) {
+        this.didFetchUpdates( Mailbox, args, reqArgs );
     },
     error_getMailboxUpdates_cannotCalculateChanges: function () {
         // All our data may be wrong. Refetch everything.

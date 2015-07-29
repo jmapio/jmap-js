@@ -216,7 +216,7 @@ JMAP.mail.handle( Message, {
         }
     },
     messageUpdates: function ( args, _, reqArgs ) {
-        this.didFetchUpdates( Message, args );
+        this.didFetchUpdates( Message, args, reqArgs );
         if ( !reqArgs.fetchRecords ) {
             this.recalculateAllFetchedWindows();
         }

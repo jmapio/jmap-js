@@ -163,8 +163,8 @@ JMAP.contacts.handle( Contact, {
         this.didFetch( Contact, args,
             reqMethod === 'getContacts' && !reqArgs.ids );
     },
-    contactUpdates: function ( args ) {
-        this.didFetchUpdates( Contact, args );
+    contactUpdates: function ( args, _, reqArgs ) {
+        this.didFetchUpdates( Contact, args, reqArgs );
         if ( args.hasMoreUpdates ) {
             this.get( 'store' ).fetchAll( Contact, true );
         }

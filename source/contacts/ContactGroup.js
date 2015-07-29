@@ -80,8 +80,8 @@ JMAP.contacts.handle( ContactGroup, {
         this.didFetch( ContactGroup, args,
             reqMethod === 'getContactGroups' && !reqArgs.ids );
     },
-    contactGroupUpdates: function ( args ) {
-        this.didFetchUpdates( ContactGroup, args );
+    contactGroupUpdates: function ( args, _, reqArgs ) {
+        this.didFetchUpdates( ContactGroup, args, reqArgs );
     },
     error_getContactGroupUpdates_cannotCalculateChanges: function () {
         // All our data may be wrong. Refetch everything.
