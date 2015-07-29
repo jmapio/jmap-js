@@ -159,8 +159,9 @@ JMAP.contacts.handle( Contact, {
     },
     commit: 'setContacts',
     // Response handlers
-    contacts: function ( args ) {
-        this.didFetch( Contact, args );
+    contacts: function ( args, reqMethod, reqArgs ) {
+        this.didFetch( Contact, args,
+            reqMethod === 'getContacts' && !reqArgs.ids );
     },
     contactUpdates: function ( args ) {
         this.didFetchUpdates( Contact, args );

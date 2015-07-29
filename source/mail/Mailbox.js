@@ -221,15 +221,9 @@ JMAP.mail.handle( Mailbox, {
 
     // ---
 
-    mailboxes: function ( args, requestName, requestArgs ) {
-        // If we get a cannotCalculateChanges error, we refetch everything.
-        // We need to tell the store explicitly it is everything so it
-        // destroys any other Mailboxes it has in its cache.
-        if ( requestName === 'getMailboxes' && !requestArgs.ids ) {
-            this.didFetch( Mailbox, args, true );
-        } else {
-            this.didFetch( Mailbox, args );
-        }
+    mailboxes: function ( args, reqMethod, reqArgs ) {
+        this.didFetch( Mailbox, args,
+            reqMethod === 'getMailboxes' && !reqArgs.ids );
     },
 
     mailboxUpdates: function ( args ) {

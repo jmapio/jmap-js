@@ -76,8 +76,9 @@ JMAP.contacts.handle( ContactGroup, {
     },
     commit: 'setContactGroups',
     // Response handlers
-    contactGroups: function ( args ) {
-        this.didFetch( ContactGroup, args );
+    contactGroups: function ( args, reqMethod, reqArgs ) {
+        this.didFetch( ContactGroup, args,
+            reqMethod === 'getContactGroups' && !reqArgs.ids );
     },
     contactGroupUpdates: function ( args ) {
         this.didFetchUpdates( ContactGroup, args );

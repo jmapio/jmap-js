@@ -133,8 +133,9 @@ JMAP.calendar.handle( Calendar, {
     },
     commit: 'setCalendars',
     // Response handlers
-    calendars: function ( args ) {
-        this.didFetch( Calendar, args );
+    calendars: function ( args, reqMethod, reqArgs ) {
+        this.didFetch( Calendar, args,
+            reqMethod === 'getCalendars' && !reqArgs.ids );
     },
     calendarUpdates: function ( args ) {
         this.didFetchUpdates( Calendar, args );
