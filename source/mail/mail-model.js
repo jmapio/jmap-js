@@ -234,7 +234,7 @@ var calculatePreemptiveAdd = function ( query, addedMessages ) {
                 }
                 return map;
             }, {} ) :
-            null;
+            {};
 
     added.sort( compareToMessage.bind( null, sort ) );
 
@@ -242,7 +242,8 @@ var calculatePreemptiveAdd = function ( query, addedMessages ) {
         var messageId = item.messageId;
         var threadId = item.threadId;
         if ( !collapseThreads || !threadToMessageId[ threadId ] ) {
-            threadToMessageId[ messageId ] = threadId;
+            threadToMessageId[ threadId ] = messageId;
+            messageToThreadId[ messageId ] = threadId;
             result.push([ item.index + result.length, messageId ]);
         }
         return result;
@@ -255,7 +256,7 @@ var updateQueries = function ( filterTest, sortTest, deltas ) {
     // pre-emptively update it.
     var queries = store.getAllRemoteQueries();
     var l = queries.length;
-    var query, filter, sort, delta, added, messageToThreadId, i, ll, item;
+    var query, filter, sort, delta;
     while ( l-- ) {
         query = queries[l];
         if ( query instanceof MessageList ) {
@@ -264,17 +265,10 @@ var updateQueries = function ( filterTest, sortTest, deltas ) {
             if ( deltas && isFilteredJustOnMailbox( filter ) ) {
                 delta = deltas[ filter.inMailboxes[0] ];
                 if ( delta ) {
-                    added = calculatePreemptiveAdd( query, delta.added );
-                    messageToThreadId = query.get( 'messageToThreadId' );
                     query.clientDidGenerateUpdate({
-                        added: added,
+                        added: calculatePreemptiveAdd( query, delta.added ),
                         removed: delta.removed
                     });
-                    for ( i = 0, ll = added ? added.length : 0;
-                            i < ll; i += 1 ) {
-                        item = added[i];
-                        messageToThreadId[ item.messageId ] = item.threadId;
-                    }
                 }
             } else if ( filterTest( filter ) || sortTest( sort ) ) {
                 query.setObsolete();
