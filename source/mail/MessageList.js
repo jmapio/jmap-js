@@ -304,8 +304,9 @@ JMAP.mail.handle( MessageList, {
         }
     },
 
-    error_getMessageListUpdates_cannotCalculateChanges: function () {
-        this.response.error_getMessageListUpdates_tooManyChanges.call( this );
+    error_getMessageListUpdates_cannotCalculateChanges: function ( _, __, requestArgs ) {
+        this.response.error_getMessageListUpdates_tooManyChanges
+            .call( this,  _, __, requestArgs );
     },
 
     error_getMessageListUpdates_tooManyChanges: function ( _, __, requestArgs ) {
