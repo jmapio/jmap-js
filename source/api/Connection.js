@@ -916,7 +916,7 @@ var Connection = O.Class({
             list = Object.keys( object );
             if ( list.length ) {
                 store.sourceDidNotUpdate(
-                    list.map( toStoreKey ), Object.values( object ) );
+                    list.map( toStoreKey ), true, Object.values( object ) );
             }
         }
         if ( ( list = args.destroyed ) && list.length ) {
@@ -925,8 +925,8 @@ var Connection = O.Class({
         if ( ( object = args.notDestroyed ) ) {
             list = Object.keys( object );
             if ( list.length ) {
-                store.sourceDidNotUpdate(
-                    list.map( toStoreKey ), Object.values( object ) );
+                store.sourceDidNotDestroy(
+                    list.map( toStoreKey ), true, Object.values( object ) );
             }
         }
         if ( args.newState ) {
