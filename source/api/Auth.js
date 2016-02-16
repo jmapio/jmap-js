@@ -6,7 +6,7 @@
 // License: © 2010-2015 FastMail Pty Ltd. MIT Licensed.                       \\
 // -------------------------------------------------------------------------- \\
 
-/*global O, JMAP */
+/*global O, JMAP, JSON */
 
 "use strict";
 
@@ -37,13 +37,13 @@ JMAP.auth = new O.Object({
 
     // ---
 
-    didAuthenticate: function ( username, accessToken, urls ) {
-        for ( var service in urls ) {
-            this.set( service, urls[ service ] );
+    didAuthenticate: function ( data ) {
+        for ( var property in data ) {
+            if ( property in this && typeof this[ property ] !== 'function' ) {
+                this.set( property, data[ property ] );
+            }
         }
-        this.set( 'username', username )
-            .set( 'accessToken', accessToken )
-            .set( 'isAuthenticated', true );
+        this.set( 'isAuthenticated', !!data.accessToken );
 
         this._awaitingAuthentication.forEach( function ( connection ) {
             connection.send();
@@ -68,21 +68,11 @@ JMAP.auth = new O.Object({
                 'Authorization': this.get( 'accessToken' )
             },
             success: function ( event ) {
-                var urls, service;
-                try {
-                    urls = JSON.parse( event.data );
-                }
-                catch ( error ) {}
-
-                if ( urls ) {
-                    for ( service in urls ) {
-                        this.set( service + 'Url', urls[ service ] );
-                    }
-                }
+                auth.didAuthenticate( JSON.parse( event.data ) );
             }.on( 'io:success' ),
             failure: function ( event ) {
                 switch ( event.status ) {
-                case 401: // Unauthorized
+                case 403: // Unauthorized
                     auth.didLoseAuthentication();
                     break;
                 case 404: // Not Found
