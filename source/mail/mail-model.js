@@ -114,6 +114,8 @@ var isFalse = function () {
 
 // ---
 
+var READY = O.Status.READY;
+
 var reOrFwd = /^(?:(?:re|fwd):\s*)+/;
 var comparators = {
     id: function ( a, b ) {
@@ -308,8 +310,6 @@ var addMoveInverse = function ( inverse, undoManager, willAdd, willRemove, messa
 };
 
 // ---
-
-var READY = O.Status.READY;
 
 var NO = 0;
 var TO_THREAD = 1;
@@ -1032,8 +1032,7 @@ O.extend( JMAP.mail, {
             inReplyToMessage = null,
             thread = null,
             messages = null,
-            isFirstDraft = true,
-            READY = O.Status.READY;
+            isFirstDraft = true;
         if ( inReplyToMessageId &&
                 ( store.getRecordStatus(
                     Message, inReplyToMessageId ) & READY ) ) {
