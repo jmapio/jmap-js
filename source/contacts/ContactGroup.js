@@ -54,10 +54,13 @@ var ContactGroup = O.Class({
     }),
 
     contactIndex: function () {
-        return this.get( 'contacts' ).reduce( function ( index, contact ) {
-            index[ contact.get( 'storeKey' ) ] = true;
-            return index;
-        }, {} );
+        var storeKeys = this.contacts.getRaw( this, 'contacts' );
+        var index = {};
+        var i, l;
+        for ( i = 0, l = storeKeys.length; i < l; i += 1 ) {
+            index[ storeKeys[i] ] = true;
+        }
+        return index;
     }.property( 'contacts' ),
 
     contains: function ( contact ) {
