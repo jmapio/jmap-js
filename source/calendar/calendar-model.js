@@ -237,8 +237,8 @@ O.extend( JMAP.calendar, {
             end = toUTCDay( date ).add( 24, 'week' );
             this.callMethod( 'getCalendarEventList', {
                 filter: {
-                    after: start,
-                    before: end
+                    after: start.toJSON() + 'Z',
+                    before: end.toJSON() + 'Z'
                 },
                 fetchCalendarEvents: true
             }, function () {
@@ -256,8 +256,8 @@ O.extend( JMAP.calendar, {
             ).subtract( 24, 'week' );
             this.callMethod( 'getCalendarEventList', {
                 filter: {
-                    after: start,
-                    before: loadingEventsStart
+                    after: start.toJSON() + 'Z',
+                    before: loadingEventsStart.toJSON() + 'Z'
                 },
                 fetchCalendarEvents: true
             }, function () {
@@ -271,8 +271,8 @@ O.extend( JMAP.calendar, {
             ).add( 24, 'week' );
             this.callMethod( 'getCalendarEventList', {
                 filter: {
-                    after: loadingEventsEnd,
-                    before: end
+                    after: loadingEventsEnd.toJSON() + 'Z',
+                    before: end.toJSON() + 'Z'
                 },
                 fetchCalendarEvents: true
             }, function () {
@@ -298,8 +298,8 @@ O.extend( JMAP.calendar, {
         this.replaceEvents = true;
         this.callMethod( 'getCalendarEventList', {
             filter: {
-                after: this.loadedEventsStart,
-                before: this.loadedEventsEnd
+                after: this.loadedEventsStart.toJSON() + 'Z',
+                before: this.loadedEventsEnd.toJSON() + 'Z'
             },
             fetchCalendarEvents: true
         });
