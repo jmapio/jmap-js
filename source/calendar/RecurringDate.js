@@ -5,7 +5,7 @@
 // License: © 2010-2015 FastMail Pty Ltd. MIT Licensed.                       \\
 // -------------------------------------------------------------------------- \\
 
-/*global O, JMAP */
+/*global JMAP */
 
 "use strict";
 
@@ -55,7 +55,7 @@ var getDayYearly = function ( date, results, daysInYear ) {
     results[2] = day + ( 7 * ( occurrence - occurrencesInYear - 1 ) );
 };
 var getYearDay = function ( date, results, total ) {
-    results[0] = date.getYearDay( true );
+    results[0] = date.getDayOfYear( true );
     results[1] = results[0] - total;
     results[2] = none;
 };
@@ -228,8 +228,8 @@ var RecurringDate = O.Class({
                 ( frequency === DAILY ) ? 366 :
                 ( frequency === HOURLY ) ? 48 :
                 /* MINUTELY || SECONDLY */ 120,
-            i, daysInMonth, offset, candidate, lastDayInYear,
-            year, month, date, hour, minute, second;
+            useFastPath, i, daysInMonth, offset, candidate, lastDayInYear,
+            weeksInYear, year, month, date, hour, minute, second;
 
         // Check it's sane.
         if ( interval < 1 ) {
@@ -264,6 +264,12 @@ var RecurringDate = O.Class({
                 byDate = [ fromDate.getUTCDate() ];
             }
         }
+        if ( frequency === MONTHLY && byMonth && !byDate && !byDay ) {
+            byDate = [ fromDate.getUTCDate() ];
+        }
+        if ( frequency === WEEKLY && byMonth && !byDay ) {
+            byDay = [ fromDate.getUTCDay() ];
+        }
 
         // Deal with monthly/yearly repetitions where the anchor may not exist
         // in some cycles. Must not use fast path.
@@ -273,6 +279,19 @@ var RecurringDate = O.Class({
             if ( frequency === YEARLY ) {
                 byMonth = [ startDate.getUTCMonth() ];
             }
+        }
+
+        useFastPath = !byDay && !byDate && !byMonth && !byYearDay && !byWeekNo;
+        switch ( frequency ) {
+            case SECONDLY:
+                useFastPath = useFastPath && !bySecond;
+                /* falls through */
+            case MINUTELY:
+                useFastPath = useFastPath && !byMinute;
+                /* falls through */
+            case HOURLY:
+                useFastPath = useFastPath && !byHour;
+                break;
         }
 
         // It's possible to write rules which don't actually match anything.
@@ -287,7 +306,7 @@ var RecurringDate = O.Class({
             second = fromDate.getUTCSeconds();
 
             // Fast path
-            if ( !byDay && !byDate && !byMonth && !byYearDay && !byWeekNo ) {
+            if ( useFastPath ) {
                 candidates.push( fromDate );
             } else {
                 // 1. Build set of candidates.
@@ -309,6 +328,9 @@ var RecurringDate = O.Class({
                     if ( byHour && byHour.indexOf( hour ) < 0 ) {
                         break;
                     }
+                    lastDayInYear = new Date( Date.UTC(
+                        year, 11, 31, hour, minute, second
+                    ));
                     /* falls through */
                 case DAILY:
                     candidates.push( new Date( Date.UTC(
@@ -370,16 +392,18 @@ var RecurringDate = O.Class({
                 }
                 if ( byYearDay ) {
                     filter( candidates, getYearDay, byYearDay,
-                        // May only be used with YEARLY frequency
                         lastDayInYear.getDayOfYear( true ) + 1
                     );
                 }
                 if ( byWeekNo ) {
+                    weeksInYear =
+                        lastDayInYear.getISOWeekNumber( firstDayOfWeek, true );
+                    if ( weeksInYear === 1 ) {
+                        weeksInYear = 52;
+                    }
                     filter( candidates, getWeekNo.bind( null, firstDayOfWeek ),
                         byWeekNo,
-                        // May only be used with YEARLY frequency
-                        lastDayInYear
-                            .getISOWeekNumber( firstDayOfWeek, true ) + 1
+                        weeksInYear + 1
                     );
                 }
             }
