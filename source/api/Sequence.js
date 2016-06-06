@@ -45,6 +45,7 @@ var Sequence = O.Class({
                 this.afterwards( index, length );
             }
         }
+        return this;
     },
 
     cancel: function () {
@@ -53,7 +54,9 @@ var Sequence = O.Class({
         if ( index < length ) {
             this.set( 'length', 0 );
             this.afterwards( index, length );
+            this.fire( 'cancel' );
         }
+        return this;
     },
 
     progress: function () {
