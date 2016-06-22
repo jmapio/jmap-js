@@ -131,12 +131,10 @@ var comparators = {
         return a.get( 'size' ) - b.get( 'size' );
     },
     from: function ( a, b ) {
-        var aFrom = a.get( 'from' );
-        var bFrom = b.get( 'from' );
-        var aFromPart = aFrom ? aFrom.name || aFrom.email : '';
-        var bFromPart = bFrom ? bFrom.name || bFrom.email : '';
+        var aFrom = a.get( 'fromName' ) || a.get( 'fromEmail' );
+        var bFrom = b.get( 'fromName' ) || b.get( 'fromEmail' );
 
-        return aFromPart < bFromPart ? -1 : aFromPart > bFromPart ? 1 : 0;
+        return aFrom < bFrom ? -1 : aFrom > bFrom ? 1 : 0;
     },
     to: function ( a, b ) {
         var aTo = a.get( 'to' );

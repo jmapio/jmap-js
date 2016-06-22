@@ -45,7 +45,8 @@ var Message = O.Class({
     isDraft: attr( Boolean ),
     hasAttachment: attr( Boolean ),
 
-    from: attr( Object ),
+    sender: attr( Object ),
+    from: attr( Array ),
     to: attr( Array ),
     subject: attr( String ),
     date: attr( Date ),
@@ -79,12 +80,14 @@ var Message = O.Class({
 
     fromName: function () {
         var from = this.get( 'from' );
-        return from ? from.name || from.email.split( '@' )[0] : '';
+        var emailer = from && from [0] || null;
+        return emailer ? emailer.name || emailer.email.split( '@' )[0] : '';
     }.property( 'from' ),
 
     fromEmail: function () {
         var from = this.get( 'from' );
-        return from ? from.email : '';
+        var emailer = from && from [0] || null;
+        return emailer ? emailer.email : '';
     }.property( 'from' ),
 
     // ---
@@ -115,7 +118,7 @@ var Message = O.Class({
 
     cc: attr( Array ),
     bcc: attr( Array ),
-    replyTo: attr( Object ),
+    replyTo: attr( Array ),
 
     textBody: attr( String ),
     htmlBody: attr( String ),
@@ -144,6 +147,7 @@ var Message = O.Class({
         'inReplyToMessageId',
         'headers.List-Id',
         'headers.List-Post',
+        'sender',
         'cc',
         'bcc',
         'replyTo',

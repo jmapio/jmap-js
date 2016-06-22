@@ -74,7 +74,11 @@ var Thread = O.Class({
     // senders is [{name: String, email: String}]
     senders: function () {
         return this.get( 'messages' ).map( function ( message ) {
-            return message.isIn( 'trash' ) ? null : message.get( 'from' );
+            if ( message.isIn( 'trash' ) ) {
+                return null;
+            }
+            var from = message.get( 'from' );
+            return from && from[0] || null;
         }).filter( O.Transform.toBoolean );
     }.property( 'messages' ).nocache(),
 
@@ -100,7 +104,11 @@ var Thread = O.Class({
 
     sendersInTrash: function () {
         return this.get( 'messages' ).map( function ( message ) {
-            return message.isIn( 'trash' ) ? message.get( 'from' ) : null;
+            if ( !message.isIn( 'trash' ) ) {
+                return null;
+            }
+            var from = message.get( 'from' );
+            return from && from[0] || null;
         }).filter( O.Transform.toBoolean );
     }.property( 'messages' ).nocache(),
 
