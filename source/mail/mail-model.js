@@ -162,9 +162,9 @@ var comparators = {
     }
 };
 
-var compareToId = function ( fields, id, message ) {
-    var otherMessage = id && ( store.getRecordStatus( Message, id ) & READY ) ?
-            store.getRecord( Message, id ) : null;
+var compareToStoreKey = function ( fields, storeKey, message ) {
+    var otherMessage = storeKey && ( store.getStatus( storeKey ) & READY ) ?
+            store.getRecord( Message, '#' + storeKey ) : null;
     var i, l, comparator, result;
     if ( !otherMessage ) {
         return 1;
@@ -193,9 +193,9 @@ var compareToMessage = function ( fields, aData, bData ) {
 
 var splitDirection = function ( fields, collapseThreads ) {
     return fields.map( function ( field ) {
-        var space = field.indexOf( ' ' ),
-            prop = space ? field.slice( 0, space ) : field,
-            dir = space && field.slice( space + 1 ) === 'asc' ? 1 : -1;
+        var space = field.indexOf( ' ' );
+        var prop = space ? field.slice( 0, space ) : field;
+        var dir = space && field.slice( space + 1 ) === 'asc' ? 1 : -1;
 
         if ( collapseThreads && /^is/.test( prop ) ) {
             prop += 'Thread';
@@ -205,32 +205,26 @@ var splitDirection = function ( fields, collapseThreads ) {
 };
 
 var calculatePreemptiveAdd = function ( query, addedMessages ) {
-    var idList = query._list;
+    var storeKeyList = query._list;
     var sort = splitDirection(
-        query.get( 'sort' ), query.get( 'collapseThreads' ) );
-    var comparator = compareToId.bind( null, sort );
+            query.get( 'sort' ), query.get( 'collapseThreads' ) );
+    var comparator = compareToStoreKey.bind( null, sort );
     var added = addedMessages.reduce( function ( added, message ) {
-            var messageId = message.get( 'id' );
-            if ( messageId ) {
-                added.push({
-                    message: message,
-                    messageId: messageId,
-                    threadId: message.get( 'threadId' ),
-                    // Can't insert draft messages for now; would need to use
-                    // store keys in the remote quries instead of message ids.
-                    index: messageId ?
-                        idList.binarySearch( message, comparator ) : -1
-                });
-            }
+            added.push({
+                message: message,
+                messageSK: message.get( 'storeKey' ),
+                threadSK: message.get( 'thread' ).get( 'storeKey' ),
+                index: storeKeyList.binarySearch( message, comparator )
+            });
             return added;
         }, [] );
 
     var collapseThreads = query.get( 'collapseThreads' );
-    var messageToThreadId = query.get( 'messageToThreadId' );
-    var threadToMessageId = collapseThreads && added.length ?
-            idList.reduce( function ( map, messageId ) {
-                if ( messageId ) {
-                    map[ messageToThreadId[ messageId ] ] = messageId;
+    var messageToThreadSK = query.get( 'messageToThreadSK' );
+    var threadToMessageSK = collapseThreads && added.length ?
+            storeKeyList.reduce( function ( map, messageSK ) {
+                if ( messageSK ) {
+                    map[ messageToThreadSK[ messageSK ] ] = messageSK;
                 }
                 return map;
             }, {} ) :
@@ -239,12 +233,12 @@ var calculatePreemptiveAdd = function ( query, addedMessages ) {
     added.sort( compareToMessage.bind( null, sort ) );
 
     return added.length ? added.reduce( function ( result, item ) {
-        var messageId = item.messageId;
-        var threadId = item.threadId;
-        if ( !collapseThreads || !threadToMessageId[ threadId ] ) {
-            threadToMessageId[ threadId ] = messageId;
-            messageToThreadId[ messageId ] = threadId;
-            result.push([ item.index + result.length, messageId ]);
+        var messageSK = item.messageSK;
+        var threadSK = item.threadSK;
+        if ( !collapseThreads || !threadToMessageSK[ threadSK ] ) {
+            threadToMessageSK[ threadSK ] = messageSK;
+            messageToThreadSK[ messageSK ] = threadSK;
+            result.push([ item.index + result.length, messageSK ]);
         }
         return result;
     }, [] ) : null;
@@ -313,12 +307,12 @@ var NO = 0;
 var TO_THREAD = 1;
 var TO_MAILBOX = 2;
 
-var getMessages = function getMessages ( ids, expand, mailbox, messageToThreadId, callback, hasDoneLoad ) {
+var getMessages = function getMessages ( messageSKs, expand, mailbox, messageToThreadSK, callback, hasDoneLoad ) {
     // Map to threads, then make sure all threads, including headers
     // are loaded
-    var allLoaded = true,
-        messages = [],
-        inTrash;
+    var allLoaded = true;
+    var messages = [];
+    var inTrash;
 
     var checkMessage = function ( message ) {
         if ( message.is( READY ) ) {
@@ -338,13 +332,13 @@ var getMessages = function getMessages ( ids, expand, mailbox, messageToThreadId
         }
     };
 
-    ids.forEach( function ( id ) {
-        var message = store.getRecord( Message, id ),
-            threadId = messageToThreadId[ id ],
-            thread;
+    messageSKs.forEach( function ( messageSK ) {
+        var message = store.getRecord( Message, '#' + messageSK );
+        var threadSK = messageToThreadSK[ messageSK ];
+        var thread;
         inTrash = message.isIn( 'trash' );
-        if ( expand && threadId ) {
-            thread = store.getRecord( Thread, threadId );
+        if ( expand && threadSK ) {
+            thread = store.getRecord( Thread, '#' + threadSK );
             if ( thread.is( READY ) ) {
                 thread.get( 'messages' ).forEach( checkMessage );
             } else {
@@ -364,7 +358,7 @@ var getMessages = function getMessages ( ids, expand, mailbox, messageToThreadId
         JMAP.mail.gc.isPaused = true;
         JMAP.mail.addCallback(
             getMessages.bind( null,
-                ids, expand, mailbox, messageToThreadId, callback, true )
+                messageSKs, expand, mailbox, messageToThreadSK, callback, true )
         );
     }
     return true;
@@ -813,7 +807,7 @@ O.extend( JMAP.mail, {
             decrementMailboxCount = function ( mailbox ) {
                 var delta = getMailboxDelta(
                         mailboxDeltas, mailbox.get( 'id' ) );
-                delta.removed.push( messageId );
+                delta.removed.push( message.get( 'storeKey' ) );
                 delta.totalMessages -= 1;
                 if ( isUnread ) {
                     delta.unreadMessages -= 1;
@@ -1026,11 +1020,11 @@ O.extend( JMAP.mail, {
     // ---
 
     saveDraft: function ( message ) {
-        var inReplyToMessageId = message.get( 'inReplyToMessageId' ),
-            inReplyToMessage = null,
-            thread = null,
-            messages = null,
-            isFirstDraft = true;
+        var inReplyToMessageId = message.get( 'inReplyToMessageId' );
+        var inReplyToMessage = null;
+        var thread = null;
+        var messages = null;
+        var isFirstDraft = true;
         if ( inReplyToMessageId &&
                 ( store.getRecordStatus(
                     Message, inReplyToMessageId ) & READY ) ) {
