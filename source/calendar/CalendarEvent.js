@@ -694,7 +694,23 @@ var CalendarEventOccurrence = O.Class({
     organizer: proxyOverrideAttibute( Object, 'organizer' ),
     attendees: proxyOverrideAttibute( Array, 'attendees' ),
 
-    rsvp: O.bindTwoWay( 'original.rsvp' ),
+    rsvp: function ( rsvp ) {
+        var original = this.get( 'original' );
+        var exceptions = original.get( 'exceptions' );
+        var id = this.id;
+        // If this is an exception from the organiser, RSVP to just this
+        // instance, otherwise RSVP to whole series
+        if ( exceptions && exceptions[ id ] &&
+                Object.keys( exceptions[ id ] ).some( function ( key ) {
+                    return key !== 'alerts';
+                }) ) {
+            return CalendarEvent.prototype.rsvp.call( this, rsvp );
+        }
+        if ( rsvp !== undefined ) {
+            original.set( 'rsvp', rsvp );
+        }
+        return original.get( 'rsvp' );
+    }.property( 'attendees' ),
 
     // ---
 
