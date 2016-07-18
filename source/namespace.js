@@ -7,4 +7,4 @@
 
 "use strict";
 
-var JMAP = {};
+this.JMAP = {};
