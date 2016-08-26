@@ -43,6 +43,46 @@ var Calendar = O.Class({
         defaultValue: true
     }),
 
+    cascadeChange: function ( _, key, oldValue, newValue ) {
+        var store = this.get( 'store' ),
+            calendarId = this.get( 'id' ),
+            property = 'calendar-' + key;
+        if ( !store.isNested ) {
+            store.getAll( JMAP.CalendarEvent, function ( data ) {
+                return data.calendarId === calendarId;
+            }).forEach( function ( event ) {
+                if ( event.get( 'recurrenceRule' ) ||
+                        event.get( 'recurrenceOverrides' ) ) {
+                    var cache = event._ocache;
+                    var id;
+                    for ( id in cache ) {
+                        cache[ id ].propertyDidChange(
+                            property, oldValue, newValue );
+                    }
+                } else {
+                    event.propertyDidChange( property, oldValue, newValue );
+                }
+            });
+        }
+    }.observes( 'name', 'color' ),
+
+    calendarWasDestroyed: function () {
+        if ( this.get( 'status' ) === O.Status.DESTROYED ) {
+            var store = this.get( 'store' );
+            var calendarStoreKey = this.get( 'storeKey' );
+            if ( !store.isNested ) {
+                store.findAll( JMAP.CalendarEvent, function ( data ) {
+                    return data.calendarId === calendarStoreKey;
+                }).forEach( function ( storeKey ) {
+                    store.setStatus( storeKey, O.Status.DESTROYED )
+                         .unloadRecord( storeKey );
+                });
+            }
+        }
+    }.observes( 'status' ),
+
+    // ---
+
     mayReadFreeBusy: attr( Boolean, {
         defaultValue: true
     }),
@@ -77,49 +117,7 @@ var Calendar = O.Class({
                 this.get( 'mayRemoveItems' );
         }
         return mayWrite;
-    }.property( 'mayAddItems', 'mayModifyItems', 'mayRemoveItems' ),
-
-    cascadeChange: function ( _, key, oldValue, newValue ) {
-        var store = this.get( 'store' ),
-            calendarId = this.get( 'id' ),
-            property = 'calendar-' + key;
-        if ( !store.isNested ) {
-            store.getAll( JMAP.CalendarEvent, function ( data ) {
-                return data.calendarId === calendarId;
-            }).forEach( function ( event ) {
-                if ( event.get( 'recurrence' ) ) {
-                    var cache = event._ocache,
-                        id;
-                    for ( id in cache ) {
-                        cache[ id ].propertyDidChange(
-                            property, oldValue, newValue );
-                    }
-                } else {
-                    event.propertyDidChange( property, oldValue, newValue );
-                }
-            });
-        }
-    }.observes( 'color', 'name' ),
-
-    calendarWasDestroyed: function () {
-        if ( this.get( 'status' ) === O.Status.DESTROYED ) {
-            var store = this.get( 'store' ),
-                calendarId = this.get( 'id' ),
-                eventIds = [];
-            if ( !store.isNested ) {
-                store.findAll( JMAP.CalendarEvent, function ( data ) {
-                    if ( data.calendarId === calendarId ) {
-                        eventIds.push( data.id );
-                    }
-                    return false;
-                });
-                if ( eventIds.length ) {
-                    store.sourceDidDestroyRecords(
-                        JMAP.CalendarEvent, eventIds );
-                }
-            }
-        }
-    }.observes( 'status' )
+    }.property( 'mayAddItems', 'mayModifyItems', 'mayRemoveItems' )
 });
 
 JMAP.calendar.handle( Calendar, {

@@ -5,7 +5,7 @@
 // License: © 2010-2015 FastMail Pty Ltd. MIT Licensed.                       \\
 // -------------------------------------------------------------------------- \\
 
-/*global JMAP */
+/*global O, JMAP */
 
 "use strict";
 
@@ -593,6 +593,11 @@ var RecurringDate = O.Class({
         }
 
         return results;
+    },
+
+    matches: function ( start, date ) {
+        return !!this.getOccurrences( start, date, new Date( +date + 1000 ) )
+                     .length;
     }
 });
 

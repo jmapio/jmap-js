@@ -27,18 +27,19 @@ var nonRepeatingEvents = new O.Object({
     },
 
     buildIndex: function () {
-        var index = this.index = {},
-            timeZone = JMAP.calendar.get( 'timeZone' ),
-            storeKeys = store.findAll( CalendarEvent, function ( data ) {
-                return !data.recurrence;
-            }),
-            i = 0, l = storeKeys.length,
-            event, timestamp, end, events;
+        var index = this.index = {};
+        var timeZone = JMAP.calendar.get( 'timeZone' );
+        var storeKeys = store.findAll( CalendarEvent, function ( data ) {
+            return !data.recurrenceRule && !data.recurrenceOverrides;
+        });
+        var i = 0;
+        var l = storeKeys.length;
+        var event, timestamp, end, events;
         for ( ; i < l; i += 1 ) {
             event = store.materialiseRecord( storeKeys[i], CalendarEvent );
-            timestamp = +event.getStartDateInTZ( timeZone );
+            timestamp = +event.getStartInTimeZone( timeZone );
             timestamp = timestamp - timestamp.mod( 24 * 60 * 60 * 1000 );
-            end = +event.getEndDateInTZ( timeZone );
+            end = +event.getEndInTimeZone( timeZone );
             while ( timestamp < end ) {
                 events = index[ timestamp ] || ( index[ timestamp ] = [] );
                 events.push( event );
@@ -49,11 +50,11 @@ var nonRepeatingEvents = new O.Object({
     },
 
     getEventsForDate: function ( date ) {
+        var timestamp = +date;
+        timestamp = timestamp - timestamp.mod( 24 * 60 * 60 * 1000 );
         if ( !this.index ) {
             this.buildIndex();
         }
-        var timestamp = +date;
-        timestamp = timestamp - timestamp.mod( 24 * 60 * 60 * 1000 );
         return this.index[ timestamp ] || null;
     }
 });
@@ -66,10 +67,11 @@ var repeatingEvents = new O.Object({
 
     records: function () {
         var storeKeys = store.findAll( CalendarEvent, function ( data ) {
-                return !!data.recurrence;
-            }),
-            i = 0, l = storeKeys.length,
-            records = new Array( l );
+            return !!data.recurrenceRule || !!data.recurrenceOverrides;
+        });
+        var i = 0;
+        var l = storeKeys.length;
+        var records = new Array( l );
         for ( ; i < l; i += 1 ) {
             records[i] = store.materialiseRecord( storeKeys[i], CalendarEvent );
         }
@@ -86,21 +88,26 @@ var repeatingEvents = new O.Object({
     buildIndex: function ( date ) {
         var start = this.start = new Date( date ).subtract( 60 );
         var end = this.end = new Date( date ).add( 120 );
-        var index = this.index = {},
-            timeZone = JMAP.calendar.get( 'timeZone' ),
-            records = this.get( 'records' ),
-            i = 0, l = records.length,
-            event, occurs, j, ll, occurrence,
-            timestamp, endStamp, events;
+        var startIndexStamp = +start;
+        var endIndexStamp = +end;
+        var index = this.index = {};
+        var timeZone = JMAP.calendar.get( 'timeZone' );
+        var records = this.get( 'records' );
+        var i = 0;
+        var l = records.length;
+        var event, occurs, j, ll, occurrence, timestamp, endStamp, events;
 
         while ( i < l ) {
             event = records[i];
-            occurs = event.getOccurrencesForDateRange( start, end, timeZone );
+            occurs = event
+                .getOccurrencesThatMayBeInDateRange( start, end, timeZone );
             for ( j = 0, ll = occurs ? occurs.length : 0; j < ll; j += 1 ) {
                 occurrence = occurs[j];
-                timestamp = +occurrence.getStartDateInTZ( timeZone );
+                timestamp = +occurrence.getStartInTimeZone( timeZone );
                 timestamp = timestamp - timestamp.mod( 24 * 60 * 60 * 1000 );
-                endStamp = +occurrence.getEndDateInTZ( timeZone );
+                timestamp = Math.max( startIndexStamp, timestamp );
+                endStamp = +occurrence.getEndInTimeZone( timeZone );
+                endStamp = Math.min( endIndexStamp, endStamp );
                 while ( timestamp < endStamp ) {
                     events = index[ timestamp ] || ( index[ timestamp ] = [] );
                     events.push( occurrence );
@@ -113,11 +120,11 @@ var repeatingEvents = new O.Object({
     },
 
     getEventsForDate: function ( date ) {
+        var timestamp = +date;
+        timestamp = timestamp - timestamp.mod( 24 * 60 * 60 * 1000 );
         if ( !this.index || date < this.start || date >= this.end ) {
             this.buildIndex( date );
         }
-        var timestamp = +date;
-        timestamp = timestamp - timestamp.mod( 24 * 60 * 60 * 1000 );
         return this.index[ timestamp ] || null;
     }
 });
@@ -134,8 +141,8 @@ var NO_EVENTS = [];
 var eventSources = [ nonRepeatingEvents, repeatingEvents ];
 var sortByStartInTimeZone = function ( timeZone ) {
     return function ( a, b ) {
-        var aStart = a.getStartDateInTZ( timeZone ),
-            bStart = b.getStartDateInTZ( timeZone );
+        var aStart = a.getStartInTimeZone( timeZone ),
+            bStart = b.getStartInTimeZone( timeZone );
         return aStart < bStart ? -1 : aStart > bStart ? 1 : 0;
     };
 };
@@ -156,7 +163,7 @@ var getEventsForDate = function ( date, timeZone, allDay ) {
         // Filter out all-day and invisible calendars.
         results = results.filter( function ( event ) {
             return event.get( 'calendar' ).get( 'isVisible' ) &&
-                ( showDeclined || event.get( 'rsvp' ) !== 'no' ) &&
+                ( showDeclined || event.get( 'rsvp' ) !== 'declined' ) &&
                 ( !allDay || event.get( 'isAllDay' ) === ( allDay > 0 ) );
         });
 
@@ -169,23 +176,27 @@ var getEventsForDate = function ( date, timeZone, allDay ) {
 
 // ---
 
-var eventLists = [];
+var eventsLists = [];
 
 var EventsList = O.Class({
+
     Extends: O.ObservableArray,
+
     init: function ( date, allDay ) {
         this.date = date;
         this.allDay = allDay;
 
-        eventLists.push( this );
+        eventsLists.push( this );
 
-        EventsList.parent.init.call( this, getEventsForDate(
-            date, JMAP.calendar.get( 'timeZone' ), allDay ));
+        EventsList.parent.init.call( this,
+            getEventsForDate( date, JMAP.calendar.get( 'timeZone' ), allDay ));
     },
+
     destroy: function () {
-        eventLists.erase( this );
+        eventsLists.erase( this );
         EventsList.parent.destroy.call( this );
     },
+
     recalculate: function () {
         return this.set( '[]', getEventsForDate(
             this.date, JMAP.calendar.get( 'timeZone' ), this.allDay ));
@@ -197,12 +208,13 @@ var EventsList = O.Class({
 var toUTCDay = function ( date ) {
     return new Date( date - ( date % ( 24 * 60 * 60 * 1000 ) ) );
 };
+
 var twelveWeeks = 12 * 7 * 24 * 60 * 60 * 1000;
 var now = new Date();
-
 var editStore;
 
 O.extend( JMAP.calendar, {
+
     editStore: editStore = new O.NestedStore( store ),
 
     undoManager: new O.StoreUndoManager({
@@ -233,8 +245,8 @@ O.extend( JMAP.calendar, {
         var loadingEventsEnd = this.loadingEventsEnd;
         var start, end;
         if ( loadingEventsStart === loadingEventsEnd ) {
-            start = toUTCDay( date ).subtract( 24, 'week' );
-            end = toUTCDay( date ).add( 24, 'week' );
+            start = toUTCDay( date ).subtract( 16, 'week' );
+            end = toUTCDay( date ).add( 48, 'week' );
             this.callMethod( 'getCalendarEventList', {
                 filter: {
                     after: start.toJSON() + 'Z',
@@ -246,8 +258,8 @@ O.extend( JMAP.calendar, {
                     .set( 'loadedEventsStart', start )
                     .set( 'loadedEventsEnd', end );
             });
-            this.loadingEventsStart = start;
-            this.loadingEventsEnd = end;
+            this.set( 'loadingEventsStart', start );
+            this.set( 'loadingEventsEnd', end );
             return;
         }
         if ( date < +loadingEventsStart + twelveWeeks ) {
@@ -263,7 +275,7 @@ O.extend( JMAP.calendar, {
             }, function () {
                 JMAP.calendar.set( 'loadedEventsStart', start );
             });
-            this.loadingEventsStart = start;
+            this.set( 'loadingEventsStart', start );
         }
         if ( date > +loadingEventsEnd - twelveWeeks ) {
             end = toUTCDay( date > loadingEventsEnd ?
@@ -278,7 +290,7 @@ O.extend( JMAP.calendar, {
             }, function () {
                 JMAP.calendar.set( 'loadedEventsEnd', end );
             });
-            this.loadingEventsEnd = end;
+            this.set( 'loadingEventsEnd', end );
         }
     },
 
@@ -289,8 +301,8 @@ O.extend( JMAP.calendar, {
     }.observes( 'timeZone' ),
 
     recalculate: function () {
-        eventLists.forEach( function ( eventList ) {
-            eventList.recalculate();
+        eventsLists.forEach( function ( eventsList ) {
+            eventsList.recalculate();
         });
     }.queue( 'before' ).observes( 'showDeclined' ),
 
