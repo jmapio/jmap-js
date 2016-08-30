@@ -6,7 +6,7 @@
 // License: © 2010-2014 FastMail Pty Ltd. MIT Licensed.                       \\
 // -------------------------------------------------------------------------- \\
 
-/*global O, JMAP, console, alert */
+/*global O, JMAP, JSON, console, alert */
 
 "use strict";
 
@@ -26,6 +26,21 @@ var delta = function ( update ) {
 
 var toPrimaryKey = function ( primaryKey, record ) {
     return record[ primaryKey ];
+};
+
+var makeSetRequest = function ( change ) {
+    var create = change.create;
+    var update = change.update;
+    var destroy = change.destroy;
+    return {
+        create: Object.zip( create.storeKeys, create.records ),
+        update: Object.zip(
+            update.records.map(
+                toPrimaryKey.bind( null, change.primaryKey )
+            ), delta( update )
+        ),
+        destroy: destroy.ids
+    };
 };
 
 var handleProps = {
@@ -653,15 +668,7 @@ var Connection = O.Class({
             destroy = change.destroy;
             if ( handler ) {
                 if ( typeof handler === 'string' ) {
-                    this.callMethod( handler, {
-                        create: Object.zip( create.storeKeys, create.records ),
-                        update: Object.zip(
-                            update.records.map(
-                                toPrimaryKey.bind( null, change.primaryKey )
-                            ), delta( update )
-                        ),
-                        destroy: destroy.ids
-                    });
+                    this.callMethod( handler, makeSetRequest( change ) );
                 } else {
                     handler.call( this, change );
                 }
@@ -976,6 +983,8 @@ var Connection = O.Class({
             // TODO: refetch accounts list and clear out any calendar data
         }
     }
+}).extend({
+    makeSetRequest: makeSetRequest
 });
 
 JMAP.Connection = Connection;
