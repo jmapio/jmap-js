@@ -92,6 +92,29 @@ var Message = O.Class({
 
     // ---
 
+    fullDate: function () {
+        var date = this.get( 'date' );
+        return O.i18n.date( date, 'fullDateAndTime' );
+    }.property( 'date' ),
+
+    relativeDate: function () {
+        var date = this.get( 'date' ),
+            now = new Date();
+        // As the server clock may not be exactly in sync with the client's
+        // clock, it's possible to get a message which appears to be dated a
+        // few seconds into the future! Make sure we always display this as
+        // a few minutes ago instead.
+        return date < now ?
+            date.relativeTo( now, true ) :
+            now.relativeTo( date, true );
+    }.property().nocache(),
+
+    formattedSize: function () {
+        return O.i18n.fileSize( this.get( 'size' ), 1 );
+    }.property( 'size' ),
+
+    // ---
+
     detailsStatus: function ( status ) {
         if ( status !== undefined ) {
             return status;
