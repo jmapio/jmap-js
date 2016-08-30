@@ -124,8 +124,23 @@ JMAP.auth = new O.Object({
         return false;
     },
 
+    connectionSucceeded: function () {
+        if ( this.get( 'isDisconnected' ) ) {
+            this._timeToWait = 1;
+            this.set( 'isDisconnected', false );
+        }
+    },
+
     connectionFailed: function ( connection, timeToWait ) {
-        this._failedConnections.include( connection );
+        if ( this.get( 'isAuthenticated' ) ) {
+            this._failedConnections.include( connection );
+            this.retryIn( timeToWait );
+        } else {
+            this._awaitingAuthentication.include( connection );
+        }
+    },
+
+    retryIn: function ( timeToWait ) {
         // If we're not already ticking down...
         if ( !this.get( 'timeToReconnect' ) ) {
             // Is this a reconnection attempt already? Exponentially back off.
@@ -140,13 +155,6 @@ JMAP.auth = new O.Object({
             this._timer =
                 O.RunLoop.invokePeriodically( this._tick, 1000, this );
             this._tick();
-        }
-    },
-
-    connectionSucceeded: function () {
-        if ( this.get( 'isDisconnected' ) ) {
-            this._timeToWait = 1;
-            this.set( 'isDisconnected', false );
         }
     },
 
