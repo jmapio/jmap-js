@@ -379,83 +379,38 @@ var doUndoAction = function ( method, args ) {
 
 // ---
 
-var byFolderTreeOrder = function ( a, b ) {
-    if ( a === b ) {
-        return 0;
-    }
-    if ( a.get( 'parent' ) !== b.get( 'parent' ) ) {
-        var aParents = [a],
-            bParents = [b],
-            parent = a,
-            al, bl;
-
-        while ( parent = parent.get( 'parent' ) ) {
-            if ( parent === b ) {
-                return 1;
-            }
-            aParents.push( parent );
-        }
-        parent = b;
-        while ( parent = parent.get( 'parent' ) ) {
-            if ( parent === a ) {
-                return -1;
-            }
-            bParents.push( parent );
-        }
-
-        al = aParents.length;
-        bl = bParents.length;
-        while ( al-- && bl-- ) {
-            if ( ( a = aParents[ al ] ) !== ( b = bParents[ bl ] ) ) {
-                break;
-            }
-        }
-    }
-    return ( a.get( 'sortOrder' ) - b.get( 'sortOrder' ) ) ||
-        O.i18n.compare( a.get( 'displayName' ), b.get( 'displayName' ) ) ||
-        ( a.get( 'id' ) < b.get( 'id' ) ? -1 : 1 );
-};
-
-var rootMailboxes = store.getQuery( 'rootMailboxes', O.LiveQuery, {
-    Type: Mailbox,
-    filter: function ( data ) {
-        return !data.parentId;
+var roleIndex = new O.Object({
+    index: null,
+    clearIndex: function () {
+        this.index = null;
     },
-    sort: [ 'sortOrder', 'name' ]
-});
-
-var allMailboxes = new O.ObservableArray( null, {
-    content: store.getQuery( 'allMailboxes', O.LiveQuery, {
-        Type: Mailbox
-    }),
-    contentDidChange: function () {
-        var mailboxes = this.get( 'content' ).get( '[]' );
-        mailboxes.sort( byFolderTreeOrder );
-        return this.set( '[]', mailboxes );
-    }
-}).contentDidChange();
-store.on( Mailbox, allMailboxes, 'contentDidChange' );
-
-var systemMailboxIds = new O.Object({
-    foldersDidChange: function () {
-        rootMailboxes.forEach( function ( mailbox ) {
-            var role = mailbox.get( 'role' );
-            if ( role ) {
-                this.set( role, mailbox.get( 'id' ) );
-            }
-            if ( mailbox.get( 'name' ) === 'Templates' ) {
-                this.set( 'templates', mailbox.get( 'id' ) );
-            }
-        }, this );
+    buildIndex: function () {
+        return this.index = store.getAll( Mailbox ).reduce(
+            function ( index, mailbox ) {
+                var role = mailbox.get( 'role' );
+                if ( role ) {
+                    index[ role ] = mailbox.get( 'id' );
+                }
+                return index;
+            });
+    },
+    getIndex: function () {
+        return this.index || this.buildIndex();
     }
 });
-rootMailboxes.addObserverForKey( '[]', systemMailboxIds, 'foldersDidChange' );
+store.on( Mailbox, roleIndex, 'clearIndex' );
 
 // ---
 
 O.extend( JMAP.mail, {
 
     getMessages: getMessages,
+
+    getMailboxIdForRole: function ( role ) {
+        return roleIndex.getIndex()[ role ] || null;
+    },
+
+    // ---
 
     gc: new O.MemoryManager( store, [
         {
@@ -551,19 +506,9 @@ O.extend( JMAP.mail, {
 
     // ---
 
-    byFolderTreeOrder: byFolderTreeOrder,
-
-    rootMailboxes: rootMailboxes,
-
-    allMailboxes: allMailboxes,
-
-    systemMailboxIds: systemMailboxIds,
-
-    // ---
-
     setUnread: function ( messages, isUnread, allowUndo ) {
         var mailboxDeltas = {};
-        var trashId = systemMailboxIds.get( 'trash' );
+        var trashId = this.getMailboxIdForRole( 'trash' );
         var inverseMessageIds = allowUndo ? [] : null;
         var inverse = allowUndo ? {
                 method: 'setUnread',
@@ -1037,7 +982,7 @@ O.extend( JMAP.mail, {
 
         // Save message
         message.get( 'mailboxes' ).add(
-            store.getRecord( Mailbox, systemMailboxIds.get( 'drafts' ) )
+            store.getRecord( Mailbox, this.getMailboxIdForRole( 'drafts' ) )
         );
         message.saveToStore();
 
@@ -1052,7 +997,7 @@ O.extend( JMAP.mail, {
         }
 
         // Pre-emptively update draft mailbox counts
-        store.getRecord( Mailbox, systemMailboxIds.get( 'drafts' ) )
+        store.getRecord( Mailbox, this.getMailboxIdForRole( 'drafts' ) )
             .increment( 'totalMessages', 1 )
             .increment( 'totalThreads', isFirstDraft ? 1 : 0 )
             .setObsolete()
