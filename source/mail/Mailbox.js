@@ -12,8 +12,8 @@
 
 ( function ( JMAP ) {
 
-var Record = O.Record,
-    attr = Record.attr;
+var Record = O.Record;
+var attr = Record.attr;
 
 var ValidationError = O.ValidationError;
 var REQUIRED        = ValidationError.REQUIRED;
@@ -154,11 +154,11 @@ var Mailbox = O.Class({
                 siblings.indexOf( dest ) + ( where === 'next' ? 1 : 0 ),
             prev = index ? siblings.getObjectAt( index - 1 ) : null,
             next = siblings.getObjectAt( index ),
-            prevPrec = prev ? prev.get( 'sortOrder' ) : 0,
-            nextPrec = next ? next.get( 'sortOrder' ) : ( index + 2 ) * 32,
+            prevSortOrder = prev ? prev.get( 'sortOrder' ) : 0,
+            nextSortOrder = next ? next.get( 'sortOrder' ) : ( index + 2 ) * 32,
             i, p, l, folder;
 
-        if ( nextPrec - prevPrec < 2 ) {
+        if ( nextSortOrder - prevSortOrder < 2 ) {
             for ( i = 0, p = 32, l = siblings.get( 'length' );
                     i < l; i += 1, p += 32 ) {
                 folder = siblings.getObjectAt( i );
@@ -169,11 +169,11 @@ var Mailbox = O.Class({
                     }
                 }
             }
-            if ( prev ) { prevPrec = prev.get( 'sortOrder' ); }
-            if ( next ) { nextPrec = next.get( 'sortOrder' ); }
+            if ( prev ) { prevSortOrder = prev.get( 'sortOrder' ); }
+            if ( next ) { nextSortOrder = next.get( 'sortOrder' ); }
         }
         this.set( 'parent', parent || null )
-            .set( 'sortOrder', ( nextPrec + prevPrec ) >> 1 );
+            .set( 'sortOrder', ( nextSortOrder + prevSortOrder ) >> 1 );
     },
 
     // ---
