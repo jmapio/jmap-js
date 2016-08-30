@@ -275,7 +275,7 @@ var updateQueries = function ( filterTest, sortTest, deltas ) {
 
 var identity = function ( v ) { return v; };
 
-var addMoveInverse = function ( inverse, undoManager, willAdd, willRemove, messageId ) {
+var addMoveInverse = function ( inverse, undoManager, willAdd, willRemove, messageSK ) {
     var l = willRemove ? willRemove.length : 1;
     var i, addMailboxId, removeMailboxId, data;
     for ( i = 0; i < l; i += 1 ) {
@@ -285,7 +285,7 @@ var addMoveInverse = function ( inverse, undoManager, willAdd, willRemove, messa
         if ( !data ) {
             data = {
                 method: 'move',
-                messageIds: [],
+                messageSKs: [],
                 args: [
                     null,
                     willRemove && removeMailboxId,
@@ -296,7 +296,7 @@ var addMoveInverse = function ( inverse, undoManager, willAdd, willRemove, messa
             inverse[ addMailboxId + removeMailboxId ] = data;
             undoManager.pushUndoData( data );
         }
-        data.messageIds.push( messageId );
+        data.messageSKs.push( messageSK );
         willAdd = null;
     }
 };
@@ -468,18 +468,17 @@ O.extend( JMAP.mail, {
         },
 
         applyChange: function ( data ) {
-            var mail = JMAP.mail;
             var pending = this.pending;
             var sequence = new JMAP.Sequence();
             var l = data.length;
-            var call, ids;
+            var call, messageSKs;
 
             while ( l-- ) {
                 call = data[l];
-                ids = call.messageIds;
-                if ( ids ) {
+                messageSKs = call.messageSKs;
+                if ( messageSKs ) {
                     sequence.then(
-                        mail.getMessages.bind( null, ids, NO, null, {} ) );
+                        getMessages.bind( null, messageSKs, NO, null, {} ) );
                 }
                 sequence.then( doUndoAction( call.method, call.args ) );
             }
@@ -509,10 +508,10 @@ O.extend( JMAP.mail, {
     setUnread: function ( messages, isUnread, allowUndo ) {
         var mailboxDeltas = {};
         var trashId = this.getMailboxIdForRole( 'trash' );
-        var inverseMessageIds = allowUndo ? [] : null;
+        var inverseMessageSKs = allowUndo ? [] : null;
         var inverse = allowUndo ? {
                 method: 'setUnread',
-                messageIds: inverseMessageIds,
+                messageSKs: inverseMessageSKs,
                 args: [
                     null,
                     !isUnread,
@@ -542,7 +541,7 @@ O.extend( JMAP.mail, {
 
             // Add inverse for undo
             if ( allowUndo ) {
-                inverseMessageIds.push( message.get( 'id' ) );
+                inverseMessageSKs.push( message.get( 'storeKey' ) );
             }
 
             // Draft messages unread status don't count in mailbox unread counts
@@ -592,7 +591,7 @@ O.extend( JMAP.mail, {
         // Update message list queries, or mark in need of refresh
         updateQueries( isFilteredOnUnread, isSortedOnUnread, null );
 
-        if ( allowUndo && inverseMessageIds.length ) {
+        if ( allowUndo && inverseMessageSKs.length ) {
             this.undoManager.pushUndoData( inverse );
         }
 
@@ -600,10 +599,10 @@ O.extend( JMAP.mail, {
     },
 
     setFlagged: function ( messages, isFlagged, allowUndo ) {
-        var inverseMessageIds = allowUndo ? [] : null;
+        var inverseMessageSKs = allowUndo ? [] : null;
         var inverse = allowUndo ? {
                 method: 'setFlagged',
-                messageIds: inverseMessageIds,
+                messageSKs: inverseMessageSKs,
                 args: [
                     null,
                     !isFlagged,
@@ -622,14 +621,14 @@ O.extend( JMAP.mail, {
 
             // Add inverse for undo
             if ( allowUndo ) {
-                inverseMessageIds.push( message.get( 'id' ) );
+                inverseMessageSKs.push( message.get( 'storeKey' ) );
             }
         });
 
         // Update message list queries, or mark in need of refresh
         updateQueries( isFilteredOnFlagged, isSortedOnFlagged, null );
 
-        if ( allowUndo && inverseMessageIds.length ) {
+        if ( allowUndo && inverseMessageSKs.length ) {
             this.undoManager.pushUndoData( inverse );
         }
 
@@ -677,7 +676,7 @@ O.extend( JMAP.mail, {
         }
 
         messages.forEach( function ( message ) {
-            var messageId = message.get( 'id' );
+            var messageSK = message.get( 'storeKey' );
             var mailboxes = message.get( 'mailboxes' );
 
             // Calculate the set of mailboxes to add/remove
@@ -739,7 +738,7 @@ O.extend( JMAP.mail, {
             // Add inverse for undo
             if ( allowUndo ) {
                 addMoveInverse( inverse, undoManager,
-                    willAdd, willRemove, messageId );
+                    willAdd, willRemove, messageSK );
             }
 
             // Calculate any changes to the mailbox message counts
@@ -938,8 +937,12 @@ O.extend( JMAP.mail, {
     },
 
     report: function ( messages, asSpam, allowUndo ) {
-        var messageIds = messages.map( function ( message ) {
-            return message.get( 'id' );
+        var messageIds = [];
+        var messageSKs = [];
+
+        messages.forEach( function ( message ) {
+            messageIds.push( message.get( 'id' ) );
+            messageSKs.push( message.get( 'storeKey' ) );
         });
 
         this.callMethod( 'reportMessages', {
@@ -950,7 +953,7 @@ O.extend( JMAP.mail, {
         if ( allowUndo ) {
             this.undoManager.pushUndoData({
                 method: 'reportMessages',
-                messageIds: messageIds,
+                messageSKs: messageSKs,
                 args: [
                     null,
                     !asSpam,
