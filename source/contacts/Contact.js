@@ -12,8 +12,8 @@
 
 ( function ( JMAP ) {
 
-var Record = O.Record,
-    attr = Record.attr;
+var Record = O.Record;
+var attr = Record.attr;
 
 var Contact = O.Class({
 
@@ -118,7 +118,7 @@ var Contact = O.Class({
 
     emailName: function () {
         var name = this.get( 'name' ).replace( /["\\]/g, '' );
-        if ( /[,;@]/.test( name ) ) {
+        if ( /[,;<>@()]/.test( name ) ) {
             name = '"' + name + '"';
         }
         return name;
