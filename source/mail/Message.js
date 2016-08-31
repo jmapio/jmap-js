@@ -168,8 +168,8 @@ var Message = O.Class({
     detailsProperties: [
         'blobId',
         'inReplyToMessageId',
-        'headers.List-Id',
-        'headers.List-Post',
+        'headers.list-id',
+        'headers.list-post',
         'sender',
         'cc',
         'bcc',
