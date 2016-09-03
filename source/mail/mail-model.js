@@ -392,7 +392,7 @@ var roleIndex = new O.Object({
                     index[ role ] = mailbox.get( 'id' );
                 }
                 return index;
-            });
+            }, {} );
     },
     getIndex: function () {
         return this.index || this.buildIndex();
