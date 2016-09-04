@@ -667,12 +667,17 @@ JMAP.calendar.handle( CalendarEvent, {
     calendarEvents: function ( args ) {
         var events = args.list;
         var l = events.length;
-        var event;
+        var event, timeZoneId;
         while ( l-- ) {
             event = events[l];
+            timeZoneId = event.timeZone;
+            if ( timeZoneId ) {
+                JMAP.calendar.seenTimeZone( O.TimeZone[ timeZoneId ] );
+            }
             normaliseRecurrenceRule( event.recurrenceRule );
             alertOffsetFromJSON( event.alerts );
         }
+        JMAP.calendar.propertyDidChange( 'usedTimeZones' );
         this.didFetch( CalendarEvent, args, this.replaceEvents );
         this.replaceEvents = false;
     },

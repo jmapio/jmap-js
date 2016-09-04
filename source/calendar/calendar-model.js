@@ -211,6 +211,7 @@ var toUTCDay = function ( date ) {
 
 var twelveWeeks = 12 * 7 * 24 * 60 * 60 * 1000;
 var now = new Date();
+var usedTimeZones = {};
 var editStore;
 
 O.extend( JMAP.calendar, {
@@ -228,6 +229,7 @@ O.extend( JMAP.calendar, {
 
     showDeclined: false,
     timeZone: null,
+    usedTimeZones: usedTimeZones,
 
     loadingEventsStart: now,
     loadingEventsEnd: now,
@@ -315,6 +317,15 @@ O.extend( JMAP.calendar, {
             },
             fetchCalendarEvents: true
         });
+    },
+
+    seenTimeZone: function ( timeZone ) {
+        if ( timeZone ) {
+            var timeZoneId = timeZone.id;
+            usedTimeZones[ timeZoneId ] =
+                ( usedTimeZones[ timeZoneId ] || 0 ) + 1;
+        }
+        return this;
     }
 });
 store.on( Calendar, JMAP.calendar, 'recalculate' )
