@@ -15,16 +15,27 @@
 var Record = O.Record;
 
 var aggregateBoolean = function ( _, key ) {
-    return this.get( 'messages' ).reduce( function ( isProperty, message ) {
-        return isProperty || ( !message.isIn( 'trash' ) && message.get( key ) );
+    return this.get( 'messagesNotInTrash' ).reduce(
+    function ( isProperty, message ) {
+        return isProperty || message.get( key );
     }, false );
-}.property( 'messages' ).nocache();
+}.property( 'messagesNotInTrash' ).nocache();
 
 var aggregateBooleanInTrash = function ( _, key ) {
-    return this.get( 'messages' ).reduce( function ( isProperty, message ) {
-        return isProperty || ( message.isIn( 'trash' ) && message.get( key ) );
+    return this.get( 'messagesInTrash' ).reduce(
+    function ( isProperty, message ) {
+        return isProperty || message.get( key );
     }, false );
-}.property( 'messages' ).nocache();
+}.property( 'messagesInTrash' ).nocache();
+
+var toFrom = function ( message ) {
+    var from = message.get( 'from' );
+    return from && from[0] || null;
+};
+
+var sumSize = function ( size, message ) {
+    return size + message.get( 'size' );
+};
 
 var Thread = O.Class({
 
@@ -36,6 +47,18 @@ var Thread = O.Class({
         recordType: JMAP.Message,
         key: 'messageIds'
     }),
+
+    messagesNotInTrash: function () {
+        return this.get( 'messages' ).filter( function ( message ) {
+            return !message.isIn( 'trash' );
+        });
+    }.property( 'messages' ),
+
+    messagesInTrash: function () {
+        return this.get( 'messages' ).filter( function ( message ) {
+            return message.isIn( 'trash' );
+        });
+    }.property( 'messages' ),
 
     isAll: function ( status ) {
         return this.is( status ) &&
@@ -60,33 +83,26 @@ var Thread = O.Class({
         return counts;
     }.property( 'messages' ).nocache(),
 
+    // ---
+
     isUnread: aggregateBoolean,
     isFlagged: aggregateBoolean,
     isDraft: aggregateBoolean,
     hasAttachment: aggregateBoolean,
 
     total: function () {
-        return this.get( 'messages' ).reduce( function ( count, message ) {
-            return count + ( message.isIn( 'trash' ) ? 0 : 1 );
-        }, 0 );
+        return this.get( 'messagesNotInTrash' ).length;
     }.property( 'messages' ).nocache(),
 
     // senders is [{name: String, email: String}]
     senders: function () {
-        return this.get( 'messages' ).map( function ( message ) {
-            if ( message.isIn( 'trash' ) ) {
-                return null;
-            }
-            var from = message.get( 'from' );
-            return from && from[0] || null;
-        }).filter( O.Transform.toBoolean );
+        return this.get( 'messagesNotInTrash' )
+                   .map( toFrom )
+                   .filter( O.Transform.toBoolean );
     }.property( 'messages' ).nocache(),
 
     size: function () {
-        return this.get( 'messages' ).reduce( function ( size, message ) {
-            return size +
-                ( message.isIn( 'trash' ) ? 0 : message.get( 'size' ) );
-        }, 0 );
+        return this.get( 'messagesNotInTrash' ).reduce( sumSize, 0 );
     }.property( 'messages' ).nocache(),
 
     // ---
@@ -97,26 +113,17 @@ var Thread = O.Class({
     hasAttachmentInTrash: aggregateBooleanInTrash,
 
     totalInTrash: function () {
-        return this.get( 'messages' ).reduce( function ( count, message ) {
-            return count + ( message.isIn( 'trash' ) ? 1 : 0 );
-        }, 0 );
+        return this.get( 'messagesInTrash' ).length;
     }.property( 'messages' ).nocache(),
 
     sendersInTrash: function () {
-        return this.get( 'messages' ).map( function ( message ) {
-            if ( !message.isIn( 'trash' ) ) {
-                return null;
-            }
-            var from = message.get( 'from' );
-            return from && from[0] || null;
-        }).filter( O.Transform.toBoolean );
+        return this.get( 'messagesInTrash' )
+                   .map( toFrom )
+                   .filter( O.Transform.toBoolean );
     }.property( 'messages' ).nocache(),
 
     sizeInTrash: function () {
-        return this.get( 'messages' ).reduce( function ( size, message ) {
-            return size +
-                ( message.isIn( 'trash' ) ? message.get( 'size' ) : 0 );
-        }, 0 );
+        return this.get( 'messagesInTrash' ).reduce( sumSize, 0 );
     }.property( 'messages' ).nocache()
 });
 
