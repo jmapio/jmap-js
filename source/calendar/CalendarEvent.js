@@ -87,13 +87,7 @@ var CalendarEvent = O.Class({
         defaultValue: ''
     }),
 
-    // htmlDescription: attr( String, {
-    //     defaultValue: ''
-    // }),
-
-    // links: attr( Array ),
-
-    attachments: attr( Array, {
+    links: attr( Object, {
         defaultValue: null
     }),
 
@@ -102,11 +96,23 @@ var CalendarEvent = O.Class({
     }.property( 'files' ),
 
     files: function () {
-        var attachments = this.get( 'attachments' ) || [];
-        return attachments.map( function ( attachment ) {
-            return new O.Object( attachment );
-        }).concat( JMAP.calendar.eventUploads.get( this ) );
-    }.property( 'attachments' ),
+        var links = this.get( 'links' ) || {};
+        var files = [];
+        var id, link;
+        for ( id in links ) {
+            link = links[ id ];
+            if ( link.rel === 'enclosure' ) {
+                links.push( new O.Object({
+                    id: id,
+                    name: link.title,
+                    url: link.href,
+                    type: link.type,
+                    size: link.size
+                }));
+            }
+        }
+        return files.concat( JMAP.calendar.eventUploads.get( this ) );
+    }.property( 'links' ),
 
     addFile: function ( file ) {
         var attachment = new JMAP.CalendarAttachment( file, this );
@@ -119,17 +125,17 @@ var CalendarEvent = O.Class({
         if ( file instanceof JMAP.CalendarAttachment ) {
             JMAP.calendar.eventUploads.remove( this, file );
         } else {
-            var attachments = this.get( 'attachments' ).slice();
-            attachments.splice( this.get( 'files' ).indexOf( file ), 1 );
-            this.set( 'attachments', attachments.length ? attachments : null );
+            var links = O.clone( this.get( 'links' ) );
+            delete links[ file.id ];
+            this.set( 'links', Object.keys( links ).length ? links : null );
         }
         return this;
     },
 
     // ---
 
-    // language: attr( String ),
-    // translations: attr( Object ),
+    // locale: attr( String ),
+    // localizations: attr( Object ),
 
     // --- Where ---
 
@@ -537,7 +543,7 @@ var CalendarEvent = O.Class({
         defaultValue: false
     }),
 
-    replyTo: attr( String, {
+    replyTo: attr( Object, {
         defaultValue: null
     }),
 

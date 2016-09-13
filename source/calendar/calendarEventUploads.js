@@ -95,16 +95,17 @@ JMAP.calendar.eventUploads = {
     didUpload: function ( file ) {
         var inEdit = file.inEdit,
             inServer = file.inServer,
-            attachment = {
-                url: file.get( 'url' ),
-                name: file.get( 'name' ),
+            link = {
+                href: file.get( 'url' ),
+                rel: 'enclosure',
+                title: file.get( 'name' ),
                 type: file.get( 'type' ),
                 size: file.get( 'size' )
             },
             editEvent = file.editEvent,
-            editAttachments = O.clone( editEvent.get( 'attachments' ) ) || [],
+            editLinks = O.clone( editEvent.get( 'links' ) ) || {},
             id, awaitingSave,
-            serverEvent, serverAttachments;
+            serverEvent, serverLinks;
 
         if ( !inServer ) {
             id = editEvent.get( 'storeKey' );
@@ -112,22 +113,21 @@ JMAP.calendar.eventUploads = {
             ( awaitingSave[ id ] ||
                 ( awaitingSave[ id ] = [] ) ).push([
                     file.get( 'path' ), file.get( 'name' ) ]);
-            editAttachments.push( attachment );
-            editEvent.set( 'attachments', editAttachments );
+            editLinks[ link.href ] = link;
+            editEvent.set( 'links', editLinks );
             this.remove( editEvent, file );
         } else {
             this.keepFile( file.get( 'path' ), file.get( 'name' ) );
             // Save new attachment to server
             serverEvent = editEvent.getDoppelganger( JMAP.store );
-            serverAttachments =
-                O.clone( serverEvent.get( 'attachments' ) ) || [];
-            serverAttachments.push( attachment );
-            serverEvent.set( 'attachments', serverAttachments );
+            serverLinks = O.clone( serverEvent.get( 'links' ) ) || {};
+            serverLinks[ link.href ] = link;
+            serverEvent.set( 'links', serverLinks );
             // If in edit, push to edit record as well.
             if ( inEdit ) {
-                editAttachments.push( attachment );
+                editLinks[ link.href ] = link;
             }
-            editEvent.set( 'attachments', editAttachments );
+            editEvent.set( 'links', editLinks );
             this.remove( serverEvent, file );
         }
     },
