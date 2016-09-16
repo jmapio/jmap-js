@@ -53,9 +53,13 @@ var makePatches = function ( path, patches, original, current ) {
     return patches;
 };
 
-var applyPatch = function ( path, patch, value ) {
+var applyPatch = function ( object, path, patch ) {
     var slash, key;
     while ( true ) {
+        // Invalid patch; path does not exist
+        if ( !object ) {
+            return;
+        }
         slash = path.indexOf( '/' );
         if ( slash > -1 ) {
             key = path.slice( 0, slash );
@@ -65,12 +69,12 @@ var applyPatch = function ( path, patch, value ) {
             key = key.replace( /~1/g, '/' ).replace( /~0/g, '~' );
         }
         if ( slash > -1 ) {
-            value = value[ key ];
+            object = object[ key ];
         } else {
             if ( patch !== null ) {
-                value[ key ] = patch;
+                object[ key ] = patch;
             } else {
-                delete value[ key ];
+                delete object[ key ];
             }
             break;
         }
@@ -141,13 +145,13 @@ var proxyOverrideAttibute = function ( Type, key ) {
                     overrides[ key ];
             }
             value = originalValue;
-            if ( mayPatch[ key ] ) {
+            if ( value && mayPatch[ key ] ) {
                 for ( path in overrides ) {
                     if ( path.indexOf( key ) === 0 ) {
                         if ( value === originalValue ) {
                             value = O.clone( originalValue );
                         }
-                        applyPatch( path, overrides[ path ], value );
+                        applyPatch( value, path, overrides[ path ] );
                     }
                 }
             }
