@@ -203,7 +203,15 @@ var CalendarEvent = O.Class({
         defaultValue: false
     }),
 
-    start: attr( Date ),
+    start: attr( Date, {
+        willSet: function ( propValue, propKey, record ) {
+            var oldStart = record.get( 'start' );
+            if ( typeof oldStart !== undefined ) {
+                this._updateRecurrenceOverrides( oldStart, propValue );
+            }
+            return true;
+        }
+    }),
 
     duration: attr( JMAP.Duration, {
         defaultValue: JMAP.Duration.ZERO
@@ -214,7 +222,13 @@ var CalendarEvent = O.Class({
     }),
 
     recurrenceRule: attr( JMAP.RecurrenceRule, {
-        defaultValue: null
+        defaultValue: null,
+        willSet: function ( propValue, propKey, record ) {
+            if ( !propValue ) {
+                record.set( 'recurrenceOverrides', null );
+            }
+            return true;
+        }
     }),
 
     recurrenceOverrides: attr( Object, {
@@ -314,11 +328,11 @@ var CalendarEvent = O.Class({
         return date;
     }.property( 'isAllDay', 'start', 'duration', 'timeZone' ),
 
-    _updateRecurrenceOverrides: function ( _, __, oldStart ) {
+    _updateRecurrenceOverrides: function ( oldStart, newStart ) {
         var recurrenceOverrides = this.get( 'recurrenceOverrides' );
         var newRecurrenceOverrides, delta, date;
-        if ( this.get( 'store' ).isNested && recurrenceOverrides ) {
-            delta = this.get( 'start' ) - oldStart;
+        if ( recurrenceOverrides ) {
+            delta = newStart - oldStart;
             newRecurrenceOverrides = {};
             for ( date in recurrenceOverrides ) {
                 newRecurrenceOverrides[
@@ -327,13 +341,7 @@ var CalendarEvent = O.Class({
             }
             this.set( 'recurrenceOverrides', newRecurrenceOverrides );
         }
-    }.observes( 'start' ),
-
-    _removeRecurrenceOverrides: function () {
-        if ( this.get( 'store' ).isNested && !this.get( 'recurrenceRule' ) ) {
-            this.set( 'recurrenceOverrides', null );
-        }
-    }.observes( 'recurrenceRule' ),
+    },
 
     removedDates: function () {
         var recurrenceOverrides = this.get( 'recurrenceOverrides' );
