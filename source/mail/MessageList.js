@@ -201,7 +201,6 @@ JMAP.mail.handle( MessageList, {
         var state = query.get( 'state' );
         var request = query.sourceWillFetchQuery();
         var hasMadeRequest = false;
-        var toMessageId = JMAP.store.getIdFromStoreKey.bind( JMAP.store );
 
         if ( canGetDeltaUpdates && state && request.refresh ) {
             var list = query._list;
@@ -213,7 +212,8 @@ JMAP.mail.handle( MessageList, {
                 sort: sort,
                 collapseThreads: collapseThreads,
                 sinceState: state,
-                uptoMessageId: upto ? toMessageId( upto ) : null,
+                uptoMessageId: upto ?
+                    JMAP.store.getIdFromStoreKey( upto ) : null,
                 maxChanges: 250
             });
         }
@@ -229,7 +229,7 @@ JMAP.mail.handle( MessageList, {
                 sort: sort,
                 collapseThreads: collapseThreads,
                 position: start,
-                anchor: anchor && toMessageId( anchor ),
+                anchor: anchor,
                 anchorOffset: offset,
                 limit: count,
                 fetchThreads: collapseThreads && fetchData,
