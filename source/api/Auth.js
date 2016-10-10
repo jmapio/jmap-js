@@ -18,14 +18,27 @@ JMAP.auth = new O.Object({
 
     username: '',
     accessToken: '',
+    accounts: {},
+    capabilities: {},
 
     authenticationUrl: '',
     apiUrl: '',
-    eventSourceUrl: '',
-    uploadUrl: '',
     downloadUrl: '',
+    uploadUrl: '',
+    eventSourceUrl: '',
 
     _isFetchingEndPoints: false,
+
+    defaultAccountId: function () {
+        var accounts = this.get( 'accounts' );
+        var id;
+        for ( id in accounts ) {
+            if ( accounts[ id ].isPrimary ) {
+                return id;
+            }
+        }
+        return null;
+    }.property( 'accounts' ),
 
     // ---
 
