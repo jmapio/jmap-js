@@ -281,7 +281,7 @@ JMAP.mail.handle( Message, {
         this.recalculateAllFetchedWindows();
         // Tell the store we're now in the new state.
         store.sourceDidFetchUpdates(
-            Message, null, null, store.getTypeState( Message ), args.newState );
+            Message, null, null, store.getTypeState( Message ), '' );
 
     },
     messagesSet: function ( args ) {

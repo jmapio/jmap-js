@@ -192,7 +192,7 @@ JMAP.mail.handle( Thread, {
         this.recalculateAllFetchedWindows();
         // Tell the store we're now in the new state.
         store.sourceDidFetchUpdates(
-            Thread, null, null, store.getTypeState( Thread ), args.newState );
+            Thread, null, null, store.getTypeState( Thread ), '' );
     }
 });
 
