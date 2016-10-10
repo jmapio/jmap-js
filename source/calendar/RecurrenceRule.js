@@ -136,23 +136,23 @@ var frequencyNumbers = {
 };
 
 var dayToNumber = {
-    monday: 1,
-    tuesday: 2,
-    wednesday: 3,
-    thursday: 4,
-    friday: 5,
-    saturday: 6,
-    sunday: 0
+    su: 0,
+    mo: 1,
+    tu: 2,
+    we: 3,
+    th: 4,
+    fr: 5,
+    sa: 6
 };
 
 var numberToDay = [
-    'sunday',
-    'monday',
-    'tuesday',
-    'wednesday',
-    'thursday',
-    'friday',
-    'saturday'
+    'su',
+    'mo',
+    'tu',
+    'we',
+    'th',
+    'fr',
+    'sa'
 ];
 
 // ---
