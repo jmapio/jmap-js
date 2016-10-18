@@ -15,6 +15,7 @@
 var Status = O.Status,
     EMPTY = Status.EMPTY,
     READY = Status.READY,
+    LOADING = Status.LOADING,
     NEW = Status.NEW;
 
 var Record = O.Record,
@@ -128,6 +129,7 @@ var Message = O.Class({
     fetchDetails: function () {
         if ( this.get( 'detailsStatus' ) === EMPTY ) {
             JMAP.mail.fetchRecord( MessageDetails, this.get( 'id' ) );
+            this.set( 'detailsStatus', EMPTY|LOADING );
         }
     },
 
