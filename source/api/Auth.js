@@ -131,7 +131,7 @@ JMAP.auth = new O.Object({
                 !this._failedConnections.contains( connection ) ) {
             return true;
         }
-        if ( !isAuthenticated ) {
+        if ( !isAuthenticated || this._isFetchingEndPoints ) {
             this._awaitingAuthentication.include( connection );
         }
         return false;

@@ -55,7 +55,7 @@ var handleProps = {
 };
 
 /**
-    Class: O.Connection
+    Class: JMAP.Connection
 
     Extends: O.Source
 
@@ -81,14 +81,14 @@ var handleProps = {
         ]
 
     The response is expected to be in the same format, with methods from
-    <O.Connection#response> available to the server to call.
+    <JMAP.Connection#response> available to the server to call.
 */
 var Connection = O.Class({
 
     Extends: O.Source,
 
     /**
-        Constructor: O.Connection
+        Constructor: JMAP.Connection
 
         Parameters:
             mixin - {Object} (optional) Any properties in this object will be
@@ -125,7 +125,7 @@ var Connection = O.Class({
     prettyPrint: false,
 
     /**
-        Property: O.Connection#willRetry
+        Property: JMAP.Connection#willRetry
         Type: Boolean
 
         If true, retry the request if the connection fails or times out.
@@ -133,7 +133,7 @@ var Connection = O.Class({
     willRetry: true,
 
     /**
-        Property: O.Connection#timeout
+        Property: JMAP.Connection#timeout
         Type: Number
 
         Time in milliseconds at which to time out the request. Set to 0 for no
@@ -142,7 +142,7 @@ var Connection = O.Class({
     timeout: 30000,
 
     /**
-        Property: O.Connection#inFlightRequest
+        Property: JMAP.Connection#inFlightRequest
         Type: (O.HttpRequest|null)
 
         The HttpRequest currently in flight.
@@ -150,10 +150,10 @@ var Connection = O.Class({
     inFlightRequest: null,
 
     /**
-        Method: O.Connection#ioDidSucceed
+        Method: JMAP.Connection#ioDidSucceed
 
         Callback when the IO succeeds. Parses the JSON and passes it on to
-        <O.Connection#receive>.
+        <JMAP.Connection#receive>.
 
         Parameters:
             event - {IOEvent}
@@ -168,7 +168,7 @@ var Connection = O.Class({
         // Check it's in the correct format
         if ( !( data instanceof Array ) ) {
             O.RunLoop.didError({
-                name: 'O.Connection#ioDidSucceed',
+                name: 'JMAP.Connection#ioDidSucceed',
                 message: 'Data from server is not JSON.',
                 details: 'Data:\n' + event.data +
                     '\n\nin reponse to request:\n' +
@@ -186,7 +186,7 @@ var Connection = O.Class({
     }.on( 'io:success' ),
 
     /**
-        Method: O.Connection#ioDidFail
+        Method: JMAP.Connection#ioDidFail
 
         Callback when the IO fails.
 
@@ -194,19 +194,55 @@ var Connection = O.Class({
             event - {IOEvent}
     */
     ioDidFail: function ( event ) {
-        var status = event.status,
-            serverFailed = ( 500 <= status && status < 600 );
-        if ( status === 401 || status === 403 ) {
-            JMAP.auth.didLoseAuthentication()
-                     .connectionWillSend( this );
-        } else if ( !serverFailed && this.get( 'willRetry' ) ) {
-            JMAP.auth.connectionFailed( this );
-        } else if ( status === 503 ) {
-            JMAP.auth.connectionFailed( this, 30 );
-        } else {
-            if ( serverFailed ) {
-                alert( O.loc( 'FEEDBACK_SERVER_FAILED' ) );
+        var discardRequest = false;
+        var auth = JMAP.auth;
+
+        switch ( event.status ) {
+        // 400: Bad Request
+        // 413: Payload Too Large
+        case 400:
+        case 413:
+            O.RunLoop.didError({
+                name: 'JMAP.Connection#ioDidFail',
+                message: 'Bad request made: ' + status,
+                details: 'Request was:\n' +
+                    JSON.stringify( this._inFlightRemoteCalls, null, 2 )
+            });
+            discardRequest = true;
+            break;
+        // 401: Unauthorized
+        case 401:
+            auth.didLoseAuthentication()
+                .connectionWillSend( this );
+            break;
+        // 404: Not Found
+        case 404:
+            auth.refindEndpoints()
+                .connectionWillSend( this );
+            break;
+        // 429: Rate Limited
+        // 503: Service Unavailable
+        // Wait a bit then try again
+        case 429:
+        case 503:
+            auth.connectionFailed( this, 30 );
+            break;
+        // 500: Internal Server Error
+        case 500:
+            alert( O.loc( 'FEEDBACK_SERVER_FAILED' ) );
+            discardRequest = true;
+            break;
+        // Presume a connection error. Try again if willRetry is set,
+        // otherwise discard.
+        default:
+            if ( this.get( 'willRetry' ) ) {
+                auth.connectionFailed( this );
+            } else {
+                discardRequest = true;
             }
+        }
+
+        if ( discardRequest ) {
             this.receive(
                 [], this._inFlightCallbacks, this._inFlightRemoteCalls );
             this._inFlightRemoteCalls = this._inFlightCallbacks = null;
@@ -214,7 +250,7 @@ var Connection = O.Class({
     }.on( 'io:failure', 'io:abort' ),
 
     /**
-        Method: O.Connection#ioDidEnd
+        Method: JMAP.Connection#ioDidEnd
 
         Callback when the IO ends.
 
@@ -230,7 +266,7 @@ var Connection = O.Class({
     }.on( 'io:end' ),
 
     /**
-        Method: O.Connection#callMethod
+        Method: JMAP.Connection#callMethod
 
         Add a method call to be sent on the next request and trigger a request
         to be sent at the end of the current run loop.
@@ -277,12 +313,12 @@ var Connection = O.Class({
         return {
             'Content-type': 'application/json',
             'Accept': 'application/json',
-            'Authorization': JMAP.auth.get( 'accessToken' )
+            'Authorization': 'Bearer ' + JMAP.auth.get( 'accessToken' )
         };
     }.property().nocache(),
 
     /**
-        Method: O.Connection#send
+        Method: JMAP.Connection#send
 
         Send any queued method calls at the end of the current run loop.
     */
@@ -316,7 +352,7 @@ var Connection = O.Class({
     }.queue( 'after' ),
 
     /**
-        Method: O.Connection#receive
+        Method: JMAP.Connection#receive
 
         After completing a request, this method is called to process the
         response returned by the server.
@@ -369,9 +405,9 @@ var Connection = O.Class({
     },
 
     /**
-        Method: O.Connection#makeRequest
+        Method: JMAP.Connection#makeRequest
 
-        This will make calls to O.Connection#(record|query)(Fetchers|Refreshers)
+        This will make calls to JMAP.Connection#(record|query)(Fetchers|Refreshers)
         to add any final API calls to the send queue, then return a tuple of the
         queue of method calls and the list of callbacks.
 
@@ -460,10 +496,10 @@ var Connection = O.Class({
     // ---
 
     /**
-        Method: O.Connection#fetchRecord
+        Method: JMAP.Connection#fetchRecord
 
         Fetches a particular record from the source. Just passes the call on to
-        <O.Connection#fetchRecords>.
+        <JMAP.Connection#fetchRecords>.
 
         Parameters:
             Type     - {O.Class} The record type.
@@ -479,10 +515,10 @@ var Connection = O.Class({
     },
 
     /**
-        Method: O.Connection#fetchAllRecords
+        Method: JMAP.Connection#fetchAllRecords
 
         Fetches all records of a particular type from the source. Just passes
-        the call on to <O.Connection#fetchRecords>.
+        the call on to <JMAP.Connection#fetchRecords>.
 
         Parameters:
             Type     - {O.Class} The record type.
@@ -498,10 +534,10 @@ var Connection = O.Class({
     },
 
     /**
-        Method: O.Connection#refreshRecord
+        Method: JMAP.Connection#refreshRecord
 
         Fetches any new data for a record since the last fetch if a handler for
-        the type is defined in <O.Connection#recordRefreshers>, or refetches the
+        the type is defined in <JMAP.Connection#recordRefreshers>, or refetches the
         whole record if not.
 
         Parameters:
@@ -518,7 +554,7 @@ var Connection = O.Class({
     },
 
     /**
-        Method: O.Connection#fetchRecords
+        Method: JMAP.Connection#fetchRecords
 
         Fetches a set of records of a particular type from the source.
 
@@ -565,7 +601,7 @@ var Connection = O.Class({
     },
 
     /**
-        Property: O.Connection#commitPrecedence
+        Property: JMAP.Connection#commitPrecedence
         Type: String[Number]|null
         Default: null
 
@@ -576,7 +612,7 @@ var Connection = O.Class({
     commitPrecedence: null,
 
     /**
-        Method: O.Connection#commitChanges
+        Method: JMAP.Connection#commitChanges
 
         Commits a set of creates/updates/destroys to the source. These are
         specified in a single object, which has record type guids as keys and an
@@ -627,11 +663,11 @@ var Connection = O.Class({
         handling their own types.
 
         In a RPC source, this method considers each type in the changes. If that
-        type has a handler defined in <O.Connection#recordCommitters>, then this
+        type has a handler defined in <JMAP.Connection#recordCommitters>, then this
         will be called with the create/update/destroy object as the sole
         argument, otherwise it will look for separate handlers in
-        <O.Connection#recordCreators>, <O.Connection#recordUpdaters> and
-        <O.Connection#recordDestroyers>. If handled by one of these, the method
+        <JMAP.Connection#recordCreators>, <JMAP.Connection#recordUpdaters> and
+        <JMAP.Connection#recordDestroyers>. If handled by one of these, the method
         will remove the type from the changes object.
 
         Parameters:
@@ -703,7 +739,7 @@ var Connection = O.Class({
     },
 
     /**
-        Method: O.Connection#fetchQuery
+        Method: JMAP.Connection#fetchQuery
 
         Fetches the data for a remote query from the source.
 
@@ -729,7 +765,7 @@ var Connection = O.Class({
     },
 
     /**
-        Method: O.Connection#handle
+        Method: JMAP.Connection#handle
 
         Helper method to register handlers for a particular type. The handler
         object may include methods with the following keys:
@@ -752,7 +788,7 @@ var Connection = O.Class({
                        as described above.
 
         Returns:
-            {O.Connection} Returns self.
+            {JMAP.Connection} Returns self.
     */
     handle: function ( Type, handlers ) {
         var typeId = O.guid( Type ),
@@ -774,7 +810,7 @@ var Connection = O.Class({
     },
 
     /**
-        Property: O.Connection#recordFetchers
+        Property: JMAP.Connection#recordFetchers
         Type: String[Function]
 
         A map of type guids to functions which will fetch records of that type.
@@ -785,7 +821,7 @@ var Connection = O.Class({
     recordFetchers: {},
 
     /**
-        Property: O.Connection#recordRefreshers
+        Property: JMAP.Connection#recordRefreshers
         Type: String[Function]
 
         A map of type guids to functions which will refresh records of that
@@ -796,7 +832,7 @@ var Connection = O.Class({
     recordRefreshers: {},
 
     /**
-        Property: O.Connection#recordCommitters
+        Property: JMAP.Connection#recordCommitters
         Type: String[Function]
 
         A map of type guids to functions which will commit all creates, updates
@@ -805,7 +841,7 @@ var Connection = O.Class({
     recordCommitters: {},
 
     /**
-        Property: O.Connection#recordCreators
+        Property: JMAP.Connection#recordCreators
         Type: String[Function]
 
         A map of type guids to functions which will commit creates for a
@@ -825,7 +861,7 @@ var Connection = O.Class({
     recordCreators: {},
 
     /**
-        Property: O.Connection#recordUpdaters
+        Property: JMAP.Connection#recordUpdaters
         Type: String[Function]
 
         A map of type guids to functions which will commit updates for a
@@ -849,7 +885,7 @@ var Connection = O.Class({
     recordUpdaters: {},
 
     /**
-        Property: O.Connection#recordDestroyers
+        Property: JMAP.Connection#recordDestroyers
         Type: String[Function]
 
         A map of type guids to functions which will commit destroys for a
@@ -868,7 +904,7 @@ var Connection = O.Class({
     recordDestroyers: {},
 
     /**
-        Property: O.Connection#queryFetchers
+        Property: JMAP.Connection#queryFetchers
         Type: String[Function]
 
         A map of query type guids to functions which will fetch the requested
@@ -942,7 +978,7 @@ var Connection = O.Class({
     },
 
     /**
-        Property: O.Connection#response
+        Property: JMAP.Connection#response
         Type: String[Function]
 
         A map of method names to functions which the server can call in a
