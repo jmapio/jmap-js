@@ -79,8 +79,9 @@ JMAP.auth = new O.Object({
             method: 'GET',
             url: this.get( 'authenticationUrl' ),
             headers: {
-                'Authorization': this.get( 'accessToken' )
+                'Authorization': 'Bearer ' + auth.get( 'accessToken' )
             },
+            withCredentials: true,
             success: function ( event ) {
                 auth.didAuthenticate( JSON.parse( event.data ) );
             }.on( 'io:success' ),

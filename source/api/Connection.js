@@ -345,6 +345,7 @@ var Connection = O.Class({
                 method: 'POST',
                 url: JMAP.auth.get( 'apiUrl' ),
                 headers: this.get( 'headers' ),
+                withCredentials: true,
                 data: JSON.stringify( remoteCalls,
                     null, this.get( 'prettyPrint' ) ? 2 : 0 )
             }).send()

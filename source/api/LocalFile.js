@@ -55,8 +55,10 @@ var LocalFile = O.Class({
                     method: 'POST',
                     url: JMAP.auth.get( 'uploadUrl' ),
                     headers: {
-                        'Authorization': JMAP.auth.get( 'accessToken' )
+                        'Authorization':
+                            'Bearer ' + JMAP.auth.get( 'accessToken' )
                     },
+                    withCredentials: true,
                     data: this.file
                 })
             );
