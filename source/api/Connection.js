@@ -952,8 +952,13 @@ var Connection = O.Class({
                 store.sourceDidNotCreate( list, true, Object.values( object ) );
             }
         }
-        if ( ( list = args.updated ) && list.length ) {
-            store.sourceDidCommitUpdate( list.map( toStoreKey ) );
+        if ( ( object = args.updated ) ) {
+            list = Object.keys( object );
+            if ( list.length ) {
+                store.sourceDidCommitUpdate( list.map( toStoreKey ) )
+                     .sourceDidFetchPartialRecords( Type, object );
+            }
+
         }
         if ( ( object = args.notUpdated ) ) {
             list = Object.keys( object );
