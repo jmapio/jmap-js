@@ -24,17 +24,15 @@ At some point you'll probably want to extend the classes with custom methods, or
 
 Before you can fetch any data, you need to authenticate the user to get an access token and the set of URLs to use for the various JMAP endpoints (see [the auth spec](http://jmap.io/spec.html#authentication)). This is not handled for you by the library; it's mainly UI work and the library is all about the data model.
 
-Once you've authenticated, you need to call `JMAP.auth.didAuthenticate`. This takes 3 arguments:
+Once you've authenticated, you need to call `JMAP.auth.didAuthenticate`. This takes an object as its sole argument, with properties to set on the auth object. This should be the object returned as a result of [successful authentication, as per the JMAP spec](http://jmap.io/spec-core.html#authentication-is-complete-access-token-created). As a minimum, you must include:
 
 * `username`: the username that has been logged in with (not strictly needed, but you will find it useful to be able to reference it on the auth object.)
 * `accessToken`: the access token returned by the server after logging in, used to authenticate all requests.
-* `urls`: an object with the following properties:
-   - `authenticationUrl`: the URL used for authentication; the library will use
-     this to refetch the other end points if needed.
-   - `apiUrl`: the API URL returned by the server.
-   - `eventSourceUrl`: the EventSourceUrl URL returned by the server.
-   - `uploadUrl`: the Upload URL returned by the server.
-   - `downloadUrl`: the Download URL (template) returned by the server.
+* `accounts`:  A map of account id to Account object for each account the user has access to.
+* `apiUrl`: the API URL to connect to.
+* `downloadUrl`: the Download URL (template) for downloading blobs.
+* `uploadUrl`: the Upload URL for uploading blobs.
+* `eventSourceUrl`: the EventSource URL for push events.
 
 #### Getting a specific record by id
 
@@ -62,33 +60,36 @@ In either case, the following methods will be useful:
 
 ### Mail
 
-There are premade queries for the two most common lists of mailboxes you might want:
+A common query you might want would be for all top-level mailboxes, sorted by their `sortOrder` property, then alphabetically by name:
 
-* `JMAP.mail.rootMailboxes` is a live query on the list of root mailboxes (mailboxes with no parent).
-* `JMAP.mail.allMailboxes` is a live query of all mailboxes.
+    var rootMailboxes = JMAP.store.getQuery( 'rootMailboxes', O.LiveQuery, {
+        Type: Mailbox,
+        filter: function ( data ) {
+            return !data.parentId;
+        },
+        sort: [ 'sortOrder', 'name' ]
+    });
 
-In both cases, the list is sorted in the order it should be displayed, with child mailboxes immediately after their parents, and within that sorted by "sortOrder", then "name".
-
-A live-updating index of the system folders is available at `JMAP.mail.systemMailboxIds` – it maps [roles](http://jmap.io/spec.html#mailboxes) to mailbox ids.
+This will automatically fetch the full list of mailboxes from the server, then filter out the ones that have a parent and sort them. If you have push events set up correctly to the server, whenever the mailboxes change the store will automatically fetch the updates, and update the queyr if needed.
 
 #### Message lists
 
 A message list represents the list of messages in a particular mailbox, or matching a particular search. This is how you get one:
 
-JMAP.store.getQuery( 'inbox', JMAP.MessageList, {
-    filter: { inMailboxes: [ JMAP.mail.systemMailboxIds.get( 'inbox' ) ] },
-    sort: [ 'date desc' ],
-    collapseThreads: true
-});
+    JMAP.store.getQuery( 'inbox', JMAP.MessageList, {
+        filter: { inMailboxes: [ JMAP.mail.systemMailboxIds.get( 'inbox' ) ] },
+        sort: [ 'date desc' ],
+        collapseThreads: true
+    });
 
-The above example would return a query whose result is the list of all threads in the inbox, newest first. The [Store#getQuery]() method takes 3 arguments: the first is an id which you can assign – if you make a subsequent call with the same id, and the message list hasn't been garbage collected, the method will return the same object (ignoring any subsequent arguments). The second argument is the query type, and finally the third argument is an object of arguments for the query: filter and sort are [as specified in the JMAP spec](http://jmap.io/spec.html#messagelists).
+The above example would return a query whose result is the list of all threads in the inbox, newest first. The [Store#getQuery](http://overturejs.com/docs/datastore/store/Store.html#O_Store_getQuery) method takes 3 arguments: the first is an id which you can assign – if you make a subsequent call with the same id, and the message list hasn't been garbage collected, the method will return the same object (ignoring any subsequent arguments). This improves performance (you aren't calculating the same thing twice), without different components needing to know if the other exists, or worry about race conditions.) The second argument is the query type, and finally the third argument is an object of arguments for the query: filter and sort are [as specified in the JMAP spec](http://jmap.io/spec-mail.html#messagelists).
 
 #### Actions
 
 For efficiency, some data in the JMAP model is denormalised. For example, the mailbox object has unread and total counts, which are really queries on the set of messages. To ensure that these are preemptively updated when you action the messages, so your client UI has a consistent view of the data, use the following methods to action messages. In each case the, first argument is an array of `JMAP.Message` objects to perform the action on.
 
-* `JMAP.mail.setUnread( messages, isUnread, allowUndo )` – sets the "isUnread" property of each message in the list (1st arg) to the value specified in the second arg. If `allowUndo = true`, the inverse operation will be added to the undo stack.
-* `JMAP.mail.setFlagged( messages, isFlagged, allowUndo )` – sets the "isFlagged" property of each message in the list (1st arg) to the value specified in the second arg. If `allowUndo = true`, the inverse operation will be added to the undo stack.
+* `JMAP.mail.setUnread( messages, isUnread, allowUndo )` – sets the "isUnread" property of each message in the array (1st arg) to the value specified in the second arg. If `allowUndo = true`, the inverse operation will be added to the undo stack.
+* `JMAP.mail.setFlagged( messages, isFlagged, allowUndo )` – sets the "isFlagged" property of each message in the array (1st arg) to the value specified in the second arg. If `allowUndo = true`, the inverse operation will be added to the undo stack.
 * `JMAP.mail.move( messages, addMailboxId, removeMailboxId, allowUndo )` – for each message, if it's not already in the mailbox with the `addMailboxId` id, it will be added to it. If it's in the mailbox with the `removeMailboxId` id, it will be removed from it. Both addMailboxId and removeMailboxId may be `null`, so this method can also be used purely to add or remove "labels" on systems that support assigning messages to multiple mailboxes.
 * `JMAP.mail.destroy( messages )` – **permanently** deletes the messages. To delete to Trash, use `JMAP.mail.move( messages, JMAP.systemMailboxIds.get( 'trash' ), null )`.
 * `JMAP.mail.report( messages, asSpam, allowUndo )` – reports a message as spam or non-spam. This does *not* move the message automatically; you will need to explicitly call `JMAP.mail.move` to do this.
@@ -101,7 +102,7 @@ After doing the actions, you need to call `JMAP.mail.undoManager.saveUndoCheckpo
 
 #### Garbage collection
 
-A user may have gigabytes of email. Keeping all this in memory is not ideal. The library has a simple little garbage collector that runs once a minute and removes the least recently used records in the cache when the count of records in the store goes over a limit. The predefined limits are:
+A user may have gigabytes of email. Keeping all this in memory is not ideal. The library has a simple little garbage collector that runs once a minute and removes the least recently used records in the cache when the count of records in the store goes over a limit. The default limits are:
 
 - Message: 1200
 - Thread: 1000
