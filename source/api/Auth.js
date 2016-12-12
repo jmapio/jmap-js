@@ -43,6 +43,9 @@ JMAP.auth = new O.Object({
     // ---
 
     getUrlForBlob: function ( accountId, blobId, name ) {
+        if ( !accountId ) {
+            accountId = this.get( 'defaultAccountId' );
+        }
         return this.get( 'downloadUrl' )
             .replace( '{accountId}', encodeURIComponent( accountId ) )
             .replace( '{blobId}', encodeURIComponent( blobId ) )
