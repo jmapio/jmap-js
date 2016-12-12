@@ -33,6 +33,11 @@ var Sequence = O.Class({
         return this;
     },
 
+    lastly: function ( fn ) {
+        this.afterwards = fn;
+        return this;
+    },
+
     go: function go ( data ) {
         var index = this.index,
             length = this.length,
