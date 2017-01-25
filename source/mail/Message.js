@@ -63,8 +63,14 @@ var Message = O.Class({
             return mailbox.get( 'role' ) === role;
         });
     },
+
     isInTrash: function () {
         return this.isIn( 'trash' );
+    }.property( 'mailboxes' ),
+
+    isInNotTrash: function () {
+        return !this.get( 'isInTrash' ) ||
+            ( this.get( 'mailboxes' ).get( 'length' ) > 1 );
     }.property( 'mailboxes' ),
 
     notifyThread: function () {

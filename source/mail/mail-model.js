@@ -90,13 +90,13 @@ var isFilteredOnMailboxes = function ( filter ) {
     if ( filter.operator ) {
         return filter.conditions.some( isFilteredOnMailboxes );
     }
-    return 'inMailboxes' in filter;
+    return ( 'inMailbox' in filter ) || ( 'inMailboxOtherThan' in filter );
 };
 var isFilteredJustOnMailbox = function ( filter ) {
-    var isJustMailboxes = false,
-        term;
+    var isJustMailboxes = false;
+    var term;
     for ( term in filter ) {
-        if ( term === 'inMailboxes' && filter[ term ].length === 1 ) {
+        if ( term === 'inMailbox' ) {
             isJustMailboxes = true;
         } else {
             isJustMailboxes = false;
@@ -257,7 +257,7 @@ var updateQueries = function ( filterTest, sortTest, deltas ) {
             filter = query.get( 'filter' );
             sort = query.get( 'sort' );
             if ( deltas && isFilteredJustOnMailbox( filter ) ) {
-                delta = deltas[ filter.inMailboxes[0] ];
+                delta = deltas[ filter.inMailbox ];
                 if ( delta ) {
                     query.clientDidGenerateUpdate({
                         added: calculatePreemptiveAdd( query, delta.added ),
@@ -304,15 +304,16 @@ var addMoveInverse = function ( inverse, undoManager, willAdd, willRemove, messa
 // ---
 
 var NO = 0;
-var TO_THREAD = 1;
-var TO_MAILBOX = 2;
+var TO_MAILBOX = 1;
+var TO_THREAD_IN_NOT_TRASH = 2;
+var TO_THREAD_IN_TRASH = 4;
+var TO_THREAD = (TO_THREAD_IN_NOT_TRASH|TO_THREAD_IN_TRASH);
 
 var getMessages = function getMessages ( messageSKs, expand, mailbox, messageToThreadSK, callback, hasDoneLoad ) {
     // Map to threads, then make sure all threads, including headers
     // are loaded
     var allLoaded = true;
     var messages = [];
-    var inTrash;
 
     var checkMessage = function ( message ) {
         if ( message.is( READY ) ) {
@@ -320,8 +321,11 @@ var getMessages = function getMessages ( messageSKs, expand, mailbox, messageToT
                 if ( message.get( 'mailboxes' ).contains( mailbox ) ) {
                     messages.push( message );
                 }
-            } else if ( expand === TO_THREAD ) {
-                if ( message.isIn( 'trash' ) === inTrash ) {
+            } else if ( expand & TO_THREAD ) {
+                if ( (( expand & TO_THREAD_IN_NOT_TRASH ) &&
+                        message.get( 'isInNotTrash' )) ||
+                     (( expand & TO_THREAD_IN_TRASH ) &&
+                        message.get( 'isInTrash' )) ) {
                     messages.push( message );
                 }
             } else {
@@ -336,7 +340,6 @@ var getMessages = function getMessages ( messageSKs, expand, mailbox, messageToT
         var message = store.getRecord( Message, '#' + messageSK );
         var threadSK = messageToThreadSK[ messageSK ];
         var thread;
-        inTrash = message.isIn( 'trash' );
         if ( expand && threadSK ) {
             thread = store.getRecord( Thread, '#' + threadSK );
             if ( thread.is( READY ) ) {
@@ -528,13 +531,14 @@ O.extend( JMAP.mail, {
             // Get the thread and cache the current unread state
             var thread = message.get( 'thread' );
             var isInTrash = message.get( 'isInTrash' );
-            var threadUnread =
-                    thread &&
-                    ( isInTrash ?
-                        thread.get( 'isUnreadInTrash' ) :
-                        thread.get( 'isUnread' ) ) ?
-                    1 : 0;
-            var mailboxCounts, mailboxId, mailbox, delta;
+            var isInNotTrash = message.get( 'isInNotTrash' );
+            var threadUnreadInTrash =
+                isInTrash && thread && thread.get( 'isUnreadInTrash' ) ?
+                1 : 0;
+            var threadUnreadInNotTrash =
+                isInNotTrash && thread && thread.get( 'isUnreadInNotTrash' ) ?
+                1 : 0;
+            var mailboxCounts, mailboxId, mailbox, delta, unreadDelta;
 
             // Update the message
             message.set( 'isUnread', isUnread );
@@ -550,36 +554,34 @@ O.extend( JMAP.mail, {
             }
 
             // Calculate any changes to the mailbox unread message counts
-            if ( isInTrash ) {
-                getMailboxDelta( mailboxDeltas, trashId )
-                    .unreadMessages += isUnread ? 1 : -1;
-            } else {
-                message.get( 'mailboxes' ).forEach( function ( mailbox ) {
-                    var mailboxId = mailbox.get( 'id' );
-                    var delta = getMailboxDelta( mailboxDeltas, mailboxId );
-                    delta.unreadMessages += isUnread ? 1 : -1;
-                });
-            }
+            message.get( 'mailboxes' ).forEach( function ( mailbox ) {
+                var mailboxId = mailbox.get( 'id' );
+                var delta = getMailboxDelta( mailboxDeltas, mailboxId );
+                delta.unreadMessages += isUnread ? 1 : -1;
+            });
 
             // See if the thread unread state has changed
-            if ( thread ) {
-                threadUnread = ( isInTrash ?
-                    thread.get( 'isUnreadInTrash' ) :
-                    thread.get( 'isUnread' )
-                ) - threadUnread;
+            if ( isInTrash && thread ) {
+                threadUnreadInTrash =
+                    Number( thread.get( 'isUnreadInTrash' ) ) -
+                        threadUnreadInTrash;
+            }
+            if ( isInNotTrash && thread ) {
+                threadUnreadInNotTrash =
+                    Number( thread.get( 'isUnreadInNotTrash' ) ) -
+                        threadUnreadInNotTrash;
             }
 
             // Calculate any changes to the mailbox unread thread counts
-            if ( threadUnread && isInTrash ) {
-                getMailboxDelta( mailboxDeltas, trashId )
-                    .unreadThreads += threadUnread;
-            } else {
+            if ( threadUnreadInNotTrash || threadUnreadInTrash ) {
                 mailboxCounts = thread.get( 'mailboxCounts' );
                 for ( mailboxId in mailboxCounts ) {
-                    if ( mailboxId !== trashId ) {
+                    unreadDelta = mailboxId === trashId ?
+                        threadUnreadInTrash : threadUnreadInNotTrash;
+                    if ( unreadDelta ) {
                         mailbox = store.getRecord( Mailbox, mailboxId );
                         delta = getMailboxDelta( mailboxDeltas, mailboxId );
-                        delta.unreadThreads += threadUnread;
+                        delta.unreadThreads += unreadDelta;
                     }
                 }
             }
@@ -642,12 +644,8 @@ O.extend( JMAP.mail, {
 
         var addMailbox = addMailboxId ?
                 store.getRecord( Mailbox, addMailboxId ) : null;
-        var removeMailbox = removeMailboxId ?
+        var removeMailbox = removeMailboxId && removeMailboxId !== 'ALL' ?
                 store.getRecord( Mailbox, removeMailboxId ) : null;
-        var isToTrash = addMailbox ?
-                addMailbox.get( 'role' ) === 'trash' : false;
-        var isFromTrash = removeMailbox ?
-                removeMailbox.get( 'role' ) === 'trash' : false;
 
         // TODO: Check mailboxes still exist? Could in theory have been deleted.
 
@@ -674,6 +672,13 @@ O.extend( JMAP.mail, {
             });
             return this;
         }
+        if ( !addMailbox && removeMailboxId === 'ALL' ) {
+            O.RunLoop.didError({
+                name: 'JMAP.mail.move',
+                message: 'All messages MUST be in at least one mailbox'
+            });
+            return this;
+        }
 
         messages.forEach( function ( message ) {
             var messageSK = message.get( 'storeKey' );
@@ -683,31 +688,37 @@ O.extend( JMAP.mail, {
             var willAdd = addMailbox && [ addMailbox ];
             var willRemove = null;
             var mailboxToRemoveIndex = -1;
+            var alreadyHasMailbox = false;
 
-            var wasThreadUnread = false;
+            var wasThreadUnreadInNotTrash = false;
             var wasThreadUnreadInTrash = false;
-            var isThreadUnread = false;
+            var isThreadUnreadInNotTrash = false;
             var isThreadUnreadInTrash = false;
             var mailboxCounts = null;
 
             var isUnread, thread;
-            var deltaThreadUnread, deltaThreadUnreadInTrash;
+            var deltaThreadUnreadInNotTrash, deltaThreadUnreadInTrash;
             var decrementMailboxCount, incrementMailboxCount;
             var delta, mailboxId, mailbox;
 
             // Calculate the changes required to the message's mailboxes
-            mailboxes.forEach( function ( mailbox, index ) {
-                if ( mailbox === addMailbox ) {
-                    willAdd = null;
-                }
-                if ( mailbox === removeMailbox ) {
-                    willRemove = [ mailbox ];
-                    mailboxToRemoveIndex = index;
-                }
-            });
-            if ( willAdd && addMailbox.get( 'mustBeOnlyMailbox' ) ) {
+            if ( removeMailboxId === 'ALL' ) {
                 willRemove = mailboxes.map( identity );
                 mailboxToRemoveIndex = 0;
+                alreadyHasMailbox = mailboxes.contains( addMailbox );
+                if ( alreadyHasMailbox && willRemove.length === 1 ) {
+                    willRemove = willAdd = null;
+                }
+            } else {
+                mailboxes.forEach( function ( mailbox, index ) {
+                    if ( mailbox === addMailbox ) {
+                        willAdd = null;
+                    }
+                    if ( mailbox === removeMailbox ) {
+                        willRemove = [ mailbox ];
+                        mailboxToRemoveIndex = index;
+                    }
+                });
             }
 
             // Check we have something to do
@@ -719,7 +730,7 @@ O.extend( JMAP.mail, {
             isUnread = message.get( 'isUnread' ) && !message.get( 'isDraft' );
             thread = message.get( 'thread' );
             if ( thread ) {
-                wasThreadUnread = thread.get( 'isUnread' );
+                wasThreadUnreadInNotTrash = thread.get( 'isUnreadInNotTrash' );
                 wasThreadUnreadInTrash = thread.get( 'isUnreadInTrash' );
             }
 
@@ -735,6 +746,11 @@ O.extend( JMAP.mail, {
             }
             // end
 
+            if ( alreadyHasMailbox ) {
+                willAdd = null;
+                willRemove.erase( addMailbox );
+            }
+
             // Add inverse for undo
             if ( allowUndo ) {
                 addMoveInverse( inverse, undoManager,
@@ -743,7 +759,7 @@ O.extend( JMAP.mail, {
 
             // Calculate any changes to the mailbox message counts
             if ( thread ) {
-                isThreadUnread = thread.get( 'isUnread' );
+                isThreadUnreadInNotTrash = thread.get( 'isUnreadInNotTrash' );
                 isThreadUnreadInTrash = thread.get( 'isUnreadInTrash' );
                 mailboxCounts = thread.get( 'mailboxCounts' );
             }
@@ -751,7 +767,7 @@ O.extend( JMAP.mail, {
             decrementMailboxCount = function ( mailbox ) {
                 var delta = getMailboxDelta(
                         mailboxDeltas, mailbox.get( 'id' ) );
-                delta.removed.push( message.get( 'storeKey' ) );
+                delta.removed.push( messageSK );
                 delta.totalMessages -= 1;
                 if ( isUnread ) {
                     delta.unreadMessages -= 1;
@@ -760,7 +776,8 @@ O.extend( JMAP.mail, {
                 if ( thread && !mailboxCounts[ mailboxId ] ) {
                     delta.totalThreads -= 1;
                     if ( mailbox.get( 'role' ) === 'trash' ?
-                            wasThreadUnreadInTrash : wasThreadUnread ) {
+                            wasThreadUnreadInTrash :
+                            wasThreadUnreadInNotTrash ) {
                         delta.unreadThreads -= 1;
                     }
                 }
@@ -778,7 +795,7 @@ O.extend( JMAP.mail, {
                 if ( thread && mailboxCounts[ mailboxId ] === 1 ) {
                     delta.totalThreads += 1;
                     if ( mailbox.get( 'role' ) === 'trash' ?
-                            isThreadUnreadInTrash : isThreadUnread ) {
+                            isThreadUnreadInTrash : isThreadUnreadInNotTrash ) {
                         delta.unreadThreads += 1;
                     }
                 }
@@ -787,23 +804,8 @@ O.extend( JMAP.mail, {
             if ( willRemove ) {
                 willRemove.forEach( decrementMailboxCount );
             }
-
-            // If moved to Trash, we have essentially removed from all other
-            // mailboxes, even if they are still present.
-            if ( isToTrash && willAdd && mailboxes.get( 'length' ) > 1 ) {
-                mailboxes.forEach( function ( mailbox ) {
-                    if ( mailbox !== addMailbox ) {
-                        decrementMailboxCount( mailbox );
-                    }
-                });
-            }
-
-            // If moved from trash, all mailboxes are essentially added
-            // for counts/message list purposes
-            if ( isFromTrash && willRemove ) {
-                mailboxes.forEach( incrementMailboxCount );
-            } else if ( willAdd ) {
-                incrementMailboxCount( addMailbox );
+            if ( willAdd ) {
+                willAdd.forEach( incrementMailboxCount );
             }
 
             // If the thread unread state has changed (due to moving in/out of
@@ -814,19 +816,14 @@ O.extend( JMAP.mail, {
             // 1. Have more than 1 message in the thread in it; or
             // 2. Not have been in the set of mailboxes we just added to this
             //    message
-            deltaThreadUnread =
-                ( isThreadUnread ? 1 : 0 ) -
-                ( wasThreadUnread ? 1 : 0 );
+            deltaThreadUnreadInNotTrash =
+                ( isThreadUnreadInNotTrash ? 1 : 0 ) -
+                ( wasThreadUnreadInNotTrash ? 1 : 0 );
             deltaThreadUnreadInTrash =
                 ( isThreadUnreadInTrash ? 1 : 0 ) -
                 ( wasThreadUnreadInTrash ? 1 : 0 );
 
-            if ( deltaThreadUnread || deltaThreadUnreadInTrash ) {
-                // If from trash, we've essentially added it to all the
-                // mailboxes it's currently in for counts purposes
-                if ( isFromTrash && willRemove ) {
-                    willAdd = mailboxes;
-                }
+            if ( deltaThreadUnreadInNotTrash || deltaThreadUnreadInTrash ) {
                 for ( mailboxId in mailboxCounts ) {
                     mailbox = store.getRecord( Mailbox, mailboxId );
                     if ( mailboxCounts[ mailboxId ] > 1 ||
@@ -835,7 +832,7 @@ O.extend( JMAP.mail, {
                         if ( mailbox.get( 'role' ) === 'trash' ) {
                             delta.unreadThreads += deltaThreadUnreadInTrash;
                         } else {
-                            delta.unreadThreads += deltaThreadUnread;
+                            delta.unreadThreads += deltaThreadUnreadInNotTrash;
                         }
                     }
                 }
@@ -855,24 +852,25 @@ O.extend( JMAP.mail, {
         var mailboxDeltas = {};
 
         messages.forEach( function ( message ) {
+            var messageSK = message.get( 'storeKey' );
             var mailboxes = message.get( 'mailboxes' );
 
-            var wasThreadUnread = false;
+            var wasThreadUnreadInNotTrash = false;
             var wasThreadUnreadInTrash = false;
-            var isThreadUnread = false;
+            var isThreadUnreadInNotTrash = false;
             var isThreadUnreadInTrash = false;
             var mailboxCounts = null;
 
             var isUnread, thread;
-            var deltaThreadUnread, deltaThreadUnreadInTrash;
-            var delta, mailboxId, mailbox, messageWasInMailbox, countInMailbox;
+            var deltaThreadUnreadInNotTrash, deltaThreadUnreadInTrash;
+            var delta, mailboxId, mailbox, messageWasInMailbox, isTrash;
 
             // Get the thread and cache the current unread state
             isUnread = message.get( 'isUnread' ) && !message.get( 'isDraft' );
             thread = message.get( 'thread' );
             if ( thread ) {
                 mailboxCounts = thread.get( 'mailboxCounts' );
-                wasThreadUnread = thread.get( 'isUnread' );
+                wasThreadUnreadInNotTrash = thread.get( 'isUnreadInNotTrash' );
                 wasThreadUnreadInTrash = thread.get( 'isUnreadInTrash' );
             }
 
@@ -885,12 +883,12 @@ O.extend( JMAP.mail, {
                 thread.refresh();
 
                 // Calculate any changes to the mailbox message counts
-                isThreadUnread = thread.get( 'isUnread' );
+                isThreadUnreadInNotTrash = thread.get( 'isUnreadInNotTrash' );
                 isThreadUnreadInTrash = thread.get( 'isUnreadInTrash' );
 
-                deltaThreadUnread =
-                    ( isThreadUnread ? 1 : 0 ) -
-                    ( wasThreadUnread ? 1 : 0 );
+                deltaThreadUnreadInNotTrash =
+                    ( isThreadUnreadInNotTrash ? 1 : 0 ) -
+                    ( wasThreadUnreadInNotTrash ? 1 : 0 );
                 deltaThreadUnreadInTrash =
                     ( isThreadUnreadInTrash ? 1 : 0 ) -
                     ( wasThreadUnreadInTrash ? 1 : 0 );
@@ -898,31 +896,35 @@ O.extend( JMAP.mail, {
                 for ( mailboxId in mailboxCounts ) {
                     mailbox = store.getRecord( Mailbox, mailboxId );
                     messageWasInMailbox = mailboxes.contains( mailbox );
-                    countInMailbox = mailboxCounts[ mailboxId ];
+                    isTrash = mailbox.get( 'role' ) === 'trash';
                     if ( messageWasInMailbox ) {
                         delta = getMailboxDelta( mailboxDeltas, mailboxId );
                         delta.totalMessages -= 1;
                         if ( isUnread ) {
                             delta.unreadMessages -= 1;
                         }
-                    }
-                    if ( deltaThreadUnread || deltaThreadUnreadInTrash ) {
-                        delta = getMailboxDelta( mailboxDeltas, mailboxId );
-                        if ( mailbox.get( 'role' ) === 'trash' ) {
-                            delta.unreadThreads += deltaThreadUnreadInTrash;
-                        } else {
-                            delta.unreadThreads += deltaThreadUnread;
+                        delta.removed.push( messageSK );
+                        if ( mailboxCounts[ mailboxId ] === 1 ) {
+                            delta.totalThreads -= 1;
                         }
+                    }
+                    if ( isTrash && deltaThreadUnreadInTrash ) {
+                        getMailboxDelta( mailboxDeltas, mailboxId )
+                            .unreadThreads += deltaThreadUnreadInTrash;
+                    } else if ( !isTrash && deltaThreadUnreadInNotTrash ) {
+                        getMailboxDelta( mailboxDeltas, mailboxId )
+                            .unreadThreads += deltaThreadUnreadInNotTrash;
                     }
                 }
             } else {
                 mailboxes.forEach( function ( mailbox ) {
-                    var delta = getMailboxDelta(
-                            mailboxDeltas, mailbox.get( 'id' ) );
+                    var delta =
+                        getMailboxDelta( mailboxDeltas, mailbox.get( 'id' ) );
                     delta.totalMessages -= 1;
                     if ( isUnread ) {
                         delta.unreadMessages -= 1;
                     }
+                    delta.removed.push( messageSK );
                 });
             }
         });
