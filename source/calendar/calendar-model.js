@@ -40,11 +40,11 @@ var nonRepeatingEvents = new O.Object({
             timestamp = +event.getStartInTimeZone( timeZone );
             timestamp = timestamp - timestamp.mod( 24 * 60 * 60 * 1000 );
             end = +event.getEndInTimeZone( timeZone );
-            while ( timestamp < end ) {
+            do {
                 events = index[ timestamp ] || ( index[ timestamp ] = [] );
                 events.push( event );
                 timestamp += ( 24 * 60 * 60 * 1000 );
-            }
+            } while ( timestamp < end );
         }
         return this;
     },
@@ -108,11 +108,11 @@ var repeatingEvents = new O.Object({
                 timestamp = Math.max( startIndexStamp, timestamp );
                 endStamp = +occurrence.getEndInTimeZone( timeZone );
                 endStamp = Math.min( endIndexStamp, endStamp );
-                while ( timestamp < endStamp ) {
+                do {
                     events = index[ timestamp ] || ( index[ timestamp ] = [] );
                     events.push( occurrence );
                     timestamp += ( 24 * 60 * 60 * 1000 );
-                }
+                } while ( timestamp < endStamp );
             }
             i += 1;
         }
