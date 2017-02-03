@@ -31,6 +31,7 @@ var aggregateBoolean = function ( _, key ) {
 }.property( 'messages' ).nocache();
 
 var aggregateBooleanInNotTrash = function ( _, key ) {
+    key = key.slice( 0, -10 );
     return this.get( 'messagesInNotTrash' ).reduce(
     function ( isProperty, message ) {
         return isProperty || message.get( key );
@@ -38,6 +39,7 @@ var aggregateBooleanInNotTrash = function ( _, key ) {
 }.property( 'messages' ).nocache();
 
 var aggregateBooleanInTrash = function ( _, key ) {
+    key = key.slice( 0, -7 );
     return this.get( 'messagesInTrash' ).reduce(
     function ( isProperty, message ) {
         return isProperty || message.get( key );
