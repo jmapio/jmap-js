@@ -1,16 +1,29 @@
 // -------------------------------------------------------------------------- \\
 // File: Auth.js                                                              \\
 // Module: API                                                                \\
-// Requires: namespace.js                                                     \\
+// Requires: SHA-256, namespace.js                                            \\
 // Author: Neil Jenkins                                                       \\
 // License: © 2010-2015 FastMail Pty Ltd. MIT Licensed.                       \\
 // -------------------------------------------------------------------------- \\
 
-/*global O, JMAP, JSON */
+/*global O, JMAP, JSON, jsSHA */
 
 "use strict";
 
 ( function ( JMAP ) {
+
+var base64encode = function ( object ) {
+    return btoa( JSON.stringify( object ) );
+};
+
+var b64tob64url = function ( string ) {
+    return string
+        .replace( /\=/g, '' )
+        .replace( /\+/g, '-' )
+        .replace( /\//g, '_' );
+};
+
+// ---
 
 JMAP.auth = new O.Object({
 
@@ -18,6 +31,9 @@ JMAP.auth = new O.Object({
 
     username: '',
     accessToken: '',
+    signingId: '',
+    signingKey: '',
+
     accounts: {},
     capabilities: {},
 
@@ -42,14 +58,39 @@ JMAP.auth = new O.Object({
 
     // ---
 
+    signUrl: function ( url ) {
+        var header = b64tob64url( base64encode({
+            alg: 'HS256',
+            typ: 'JWT'
+        }));
+        var payload = b64tob64url( base64encode({
+            iss: this.get( 'signingId' ),
+            sub: url.replace( /[?#].*/, '' ),
+            iat: Math.floor( Date.now() / 1000 )
+        }));
+        var token = header + '.' + payload;
+        var signingKey = this.get( 'signingKey' );
+        var signature = signingKey ?
+            '.' + b64tob64url(
+                new jsSHA( 'SHA-256', 'TEXT' )
+                    .setHMACKey( signingKey, 'B64' )
+                    .update( url )
+                    .getHMAC( 'B64' )
+            ) :
+            '';
+        return url + '?access_token=' + token + signature;
+    },
+
     getUrlForBlob: function ( accountId, blobId, name ) {
         if ( !accountId ) {
             accountId = this.get( 'defaultAccountId' );
         }
-        return this.get( 'downloadUrl' )
-            .replace( '{accountId}', encodeURIComponent( accountId ) )
-            .replace( '{blobId}', encodeURIComponent( blobId ) )
-            .replace( '{name}', encodeURIComponent( name ) );
+        return this.signUrl(
+            this.get( 'downloadUrl' )
+                .replace( '{accountId}', encodeURIComponent( accountId ) )
+                .replace( '{blobId}', encodeURIComponent( blobId ) )
+                .replace( '{name}', encodeURIComponent( name || '' ) )
+        );
     },
 
     // ---
