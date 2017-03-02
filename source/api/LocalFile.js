@@ -18,8 +18,6 @@ var LocalFile = O.Class({
 
     nextEventTarget: JMAP.upload,
 
-    constrainImageTo: 0,
-
     init: function ( file ) {
         this.file = file;
         this.blobId = '';
