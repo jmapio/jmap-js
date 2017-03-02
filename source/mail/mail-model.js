@@ -646,11 +646,19 @@ O.extend( JMAP.mail, {
                 store.getRecord( Mailbox, addMailboxId ) : null;
         var removeMailbox = removeMailboxId && removeMailboxId !== 'ALL' ?
                 store.getRecord( Mailbox, removeMailboxId ) : null;
+        var addMailboxOnlyIfNone = false;
+        if ( !addMailbox ) {
+            addMailboxOnlyIfNone = true;
+            addMailbox = store.getRecord( Mailbox,
+                this.getMailboxIdForRole( 'archive' ) ||
+                this.getMailboxIdForRole( 'inbox' )
+            );
+        }
 
         // TODO: Check mailboxes still exist? Could in theory have been deleted.
 
         // Check we're not moving from/to the same place
-        if ( addMailbox === removeMailbox ) {
+        if ( addMailbox === removeMailbox && !addMailboxOnlyIfNone ) {
             return;
         }
 
@@ -669,13 +677,6 @@ O.extend( JMAP.mail, {
                 name: 'JMAP.mail.move',
                 message: 'May not remove messages from ' +
                     removeMailbox.get( 'name' )
-            });
-            return this;
-        }
-        if ( !addMailbox && removeMailboxId === 'ALL' ) {
-            O.RunLoop.didError({
-                name: 'JMAP.mail.move',
-                message: 'All messages MUST be in at least one mailbox'
             });
             return this;
         }
@@ -722,8 +723,13 @@ O.extend( JMAP.mail, {
             }
 
             // Check we have something to do
-            if ( !willRemove && !willAdd ) {
+            if ( !willRemove && ( !willAdd || addMailboxOnlyIfNone ) ) {
                 return;
+            }
+
+            if ( addMailboxOnlyIfNone &&
+                    willRemove.length !== mailboxes.get( 'length' ) ) {
+                willAdd = null;
             }
 
             // Get the thread and cache the current unread state
