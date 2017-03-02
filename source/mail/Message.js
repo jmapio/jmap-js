@@ -50,7 +50,9 @@ var Message = O.Class({
     from: attr( Array ),
     to: attr( Array ),
     subject: attr( String ),
-    date: attr( Date ),
+    date: attr( Date, {
+        toJSON: Date.toUTCJSON
+    }),
 
     size: attr( Number ),
 

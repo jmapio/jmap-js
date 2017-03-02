@@ -25,3 +25,7 @@ Date.prototype.toJSON = function () {
         ( second < 10 ? '0' + second : '' + second )
     );
 };
+
+Date.toUTCJSON = function ( date ) {
+    return date.toJSON() + 'Z';
+};
