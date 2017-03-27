@@ -74,11 +74,13 @@ JMAP.auth = new O.Object({
             '.' + b64tob64url(
                 new jsSHA( 'SHA-256', 'TEXT' )
                     .setHMACKey( signingKey, 'B64' )
-                    .update( url )
+                    .update( token )
                     .getHMAC( 'B64' )
             ) :
             '';
-        return url + '?access_token=' + token + signature;
+        return url +
+            ( url.contains( '?' ) ? '&' : '?' ) +
+            'access_token=' + token + signature;
     },
 
     getUrlForBlob: function ( accountId, blobId, name ) {
