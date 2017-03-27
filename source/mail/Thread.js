@@ -13,14 +13,15 @@
 ( function ( JMAP ) {
 
 var Record = O.Record;
+var READY = O.Status.READY;
 
 // ---
 
 var isInTrash = function ( message ) {
-    return message.get( 'isInTrash' );
+    return message.is( READY ) && message.get( 'isInTrash' );
 };
 var isInNotTrash = function ( message ) {
-    return message.get( 'isInNotTrash' );
+    return message.is( READY ) && message.get( 'isInNotTrash' );
 };
 
 var aggregateBoolean = function ( _, key ) {
@@ -66,7 +67,7 @@ var senders = function( property ) {
 };
 
 var sumSize = function ( size, message ) {
-    return size + message.get( 'size' );
+    return size + ( message.get( 'size' ) || 0 );
 };
 var size = function( property ) {
     return function () {
@@ -115,9 +116,11 @@ var Thread = O.Class({
 
     isAll: function ( status ) {
         return this.is( status ) &&
-            this.get( 'messages' ).every( function ( message ) {
-                return message.is( status );
-            });
+            // .reduce instead of .every so we deliberately fetch every record
+            // object from the store, triggering a fetch if not loaded
+            this.get( 'messages' ).reduce( function ( isStatus, message ) {
+                return isStatus && message.is( status );
+            }, true );
     },
 
     // Note: API Mail mutates this value; do not cache.
