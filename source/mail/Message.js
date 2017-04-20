@@ -239,9 +239,9 @@ JMAP.mail.handle( Message, {
     // ---
 
     messages: function ( args ) {
-        var first = args.list[0],
-            updates;
-        if ( first && first.date ) {
+        var first = args.list[0];
+        var updates;
+        if ( !first || first.date ) {
             this.didFetch( Message, args );
         } else {
             updates = args.list.reduce( function ( updates, message ) {
