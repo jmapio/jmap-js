@@ -23,6 +23,12 @@ var b64tob64url = function ( string ) {
         .replace( /\//g, '_' );
 };
 
+var b64urltob64 = function ( string ) {
+    return string
+        .replace( /\-/g, '+' )
+        .replace( /\_/g, '/' );
+};
+
 // ---
 
 JMAP.auth = new O.Object({
@@ -73,7 +79,7 @@ JMAP.auth = new O.Object({
         var signature = signingKey ?
             '.' + b64tob64url(
                 new jsSHA( 'SHA-256', 'TEXT' )
-                    .setHMACKey( signingKey, 'B64' )
+                    .setHMACKey( b64urltob64( signingKey ), 'B64' )
                     .update( token )
                     .getHMAC( 'B64' )
             ) :
