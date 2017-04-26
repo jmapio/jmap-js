@@ -31,6 +31,8 @@ var LocalFile = O.Class({
         this.isUploaded = false;
         this.progress = 0;
 
+        this._backoff = 500;
+
         LocalFile.parent.init.call( this );
     },
 
@@ -111,7 +113,8 @@ var LocalFile = O.Class({
             this.set( 'isTooBig', true );
             break;
         default:  // Connection failed or 503 Service Unavailable
-            O.RunLoop.invokeAfterDelay( this.upload, 30000, this );
+            O.RunLoop.invokeAfterDelay( this.upload, this._backoff, this );
+            this._backoff = Math.min( this._backoff * 2, 30000 );
             return;
         }
 
