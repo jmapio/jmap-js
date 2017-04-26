@@ -159,13 +159,8 @@ var Connection = O.Class({
             event - {IOEvent}
     */
     ioDidSucceed: function ( event ) {
-        // Parse data
-        var data;
-        try {
-            data = JSON.parse( event.data );
-        } catch ( error ) {}
-
-        // Check it's in the correct format
+        // Check data is in the correct format
+        var data = event.data;
         if ( !( data instanceof Array ) ) {
             O.RunLoop.didError({
                 name: 'JMAP.Connection#ioDidSucceed',
@@ -346,6 +341,7 @@ var Connection = O.Class({
                 url: JMAP.auth.get( 'apiUrl' ),
                 headers: this.get( 'headers' ),
                 withCredentials: true,
+                responseType: 'json',
                 data: JSON.stringify( remoteCalls,
                     null, this.get( 'prettyPrint' ) ? 2 : 0 )
             }).send()

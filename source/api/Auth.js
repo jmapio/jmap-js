@@ -134,8 +134,9 @@ JMAP.auth = new O.Object({
                 'Authorization': 'Bearer ' + auth.get( 'accessToken' )
             },
             withCredentials: true,
+            responseType: 'json',
             success: function ( event ) {
-                auth.didAuthenticate( JSON.parse( event.data ) );
+                auth.didAuthenticate( event.data );
             }.on( 'io:success' ),
             failure: function ( event ) {
                 switch ( event.status ) {
