@@ -37,10 +37,10 @@ var updateMailboxCounts = function ( mailboxDeltas ) {
         delta = mailboxDeltas[ mailboxId ];
         mailbox = store.getRecord( Mailbox, mailboxId );
         if ( delta.totalMessages ) {
-            mailbox.increment( 'totalMessages', delta.total );
+            mailbox.increment( 'totalMessages', delta.totalMessages );
         }
         if ( delta.unreadMessages ) {
-            mailbox.increment( 'unreadMessages', delta.unread );
+            mailbox.increment( 'unreadMessages', delta.unreadMessages );
         }
         if ( delta.totalThreads ) {
             mailbox.increment( 'totalThreads', delta.totalThreads );
