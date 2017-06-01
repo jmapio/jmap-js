@@ -8,9 +8,9 @@
 
 /*global O, JMAP */
 
-"use strict";
+'use strict';
 
-( function ( JMAP, undefined ) {
+( function ( JMAP ) {
 
 JMAP.calendar.eventUploads = {
 

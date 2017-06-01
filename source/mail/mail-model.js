@@ -8,7 +8,7 @@
 
 /*global O, JMAP */
 
-"use strict";
+'use strict';
 
 ( function ( JMAP ) {
 
@@ -538,7 +538,7 @@ O.extend( JMAP.mail, {
             var threadUnreadInNotTrash =
                 isInNotTrash && thread && thread.get( 'isUnreadInNotTrash' ) ?
                 1 : 0;
-            var mailboxCounts, mailboxId, mailbox, delta, unreadDelta;
+            var mailboxCounts, mailboxId, delta, unreadDelta;
 
             // Update the message
             message.set( 'isUnread', isUnread );
@@ -579,7 +579,6 @@ O.extend( JMAP.mail, {
                     unreadDelta = mailboxId === trashId ?
                         threadUnreadInTrash : threadUnreadInNotTrash;
                     if ( unreadDelta ) {
-                        mailbox = store.getRecord( Mailbox, mailboxId );
                         delta = getMailboxDelta( mailboxDeltas, mailboxId );
                         delta.unreadThreads += unreadDelta;
                     }

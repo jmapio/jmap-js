@@ -8,7 +8,7 @@
 
 /*global O, JMAP */
 
-"use strict";
+'use strict';
 
 ( function ( JMAP, undefined ) {
 
@@ -624,14 +624,14 @@ var normaliseRecurrenceRule = function ( recurrenceRuleJSON ) {
     if ( recurrenceRuleJSON.firstDayOfWeek === 'monday' ) {
         delete recurrenceRuleJSON.firstDayOfWeek;
     }
-    if ( byDay = recurrenceRuleJSON.byDay ) {
+    if ( ( byDay = recurrenceRuleJSON.byDay ) ) {
         if ( byDay.length ) {
             byDay.sort( byNthThenDay );
         } else {
             delete recurrenceRuleJSON.byDay;
         }
     }
-    if ( byMonth = recurrenceRuleJSON.byMonth ) {
+    if ( ( byMonth = recurrenceRuleJSON.byMonth ) ) {
         if ( byMonth.length ) {
             byMonth.sort();
         } else {

@@ -8,7 +8,7 @@
 
 /*global O, JMAP, JSON */
 
-"use strict";
+'use strict';
 
 ( function ( JMAP, undefined ) {
 

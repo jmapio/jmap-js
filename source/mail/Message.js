@@ -8,7 +8,7 @@
 
 /*global O, JMAP */
 
-"use strict";
+'use strict';
 
 ( function ( JMAP, undefined ) {
 
@@ -280,7 +280,7 @@ JMAP.mail.handle( Message, {
         this.messageUpdateFetchRecords = true;
         this.messageUpdateMaxChanges = 50;
     },
-    error_getMessageUpdates_cannotCalculateChanges: function ( args ) {
+    error_getMessageUpdates_cannotCalculateChanges: function ( /* args */ ) {
         var store = this.get( 'store' );
         // All our data may be wrong. Mark all messages as obsolete.
         // The garbage collector will eventually clean up any messages that

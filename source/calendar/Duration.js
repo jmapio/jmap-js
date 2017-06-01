@@ -7,7 +7,7 @@
 
 /*global O, JMAP */
 
-"use strict";
+'use strict';
 
 ( function ( JMAP ) {
 
@@ -46,14 +46,14 @@ var Duration = O.Class({
                 durationInMS -= quantity * 60 * 60 * 1000;
                 /* falls through */
             // Minutes
-            case durationInMS > 60 * 1000:
+            case durationInMS > 60 * 1000: // eslint-disable-line no-fallthrough
                 quantity = Math.floor( durationInMS / ( 60 * 1000 ) );
                 output += quantity;
                 output += 'M';
                 durationInMS -= quantity * 60 * 1000;
                 /* falls through */
             // Seconds
-            default:
+            default: // eslint-disable-line no-fallthrough
                 quantity = Math.floor( durationInMS / 1000 );
                 output += quantity;
                 output += 'S';

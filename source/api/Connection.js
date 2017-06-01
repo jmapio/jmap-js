@@ -8,7 +8,7 @@
 
 /*global O, JMAP, JSON, console, alert */
 
-"use strict";
+'use strict';
 
 ( function ( JMAP ) {
 
@@ -365,7 +365,6 @@ var Connection = O.Class({
     receive: function ( data, callbacks, remoteCalls ) {
         var handlers = this.response,
             i, l, response, handler,
-            remoteCallsLength,
             tuple, id, callback, request;
         for ( i = 0, l = data.length; i < l; i += 1 ) {
             response = data[i];
@@ -381,8 +380,7 @@ var Connection = O.Class({
             }
         }
         // Invoke after bindings to ensure all data has propagated through.
-        if ( l = callbacks.length ) {
-            remoteCallsLength = remoteCalls.length;
+        if ( ( l = callbacks.length ) ) {
             for ( i = 0; i < l; i += 1 ) {
                 tuple = callbacks[i];
                 id = tuple[0];
@@ -999,9 +997,11 @@ var Connection = O.Class({
             }
         },
         error_unknownMethod: function ( _, requestName ) {
+            // eslint-disable-next-line no-console
             console.log( 'Unknown API call made: ' + requestName );
         },
         error_invalidArguments: function ( _, requestName, requestArgs ) {
+            // eslint-disable-next-line no-console
             console.log( 'API call to ' + requestName +
                 'made with invalid arguments: ', requestArgs );
         },

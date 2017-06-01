@@ -5,7 +5,7 @@
 // License: © 2010-2015 FastMail Pty Ltd. MIT Licensed.                       \\
 // -------------------------------------------------------------------------- \\
 
-"use strict";
+'use strict';
 
 Date.prototype.toJSON = function () {
     var year = this.getUTCFullYear(),
