@@ -254,7 +254,7 @@ JMAP.mail.handle( MessageList, {
         if ( ( ( query.get( 'status' ) & O.Status.EMPTY ) &&
                 !request.records.length ) ||
              ( !canGetDeltaUpdates && !hasMadeRequest && request.refresh ) ) {
-            get( 0, 30, undefined, undefined, true );
+            get( 0, query.get( 'windowSize' ), undefined, undefined, true );
         }
     },
 
