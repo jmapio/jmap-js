@@ -12,6 +12,7 @@
 
 ( function ( JMAP, undefined ) {
 
+var isEqual = O.isEqual;
 var Status = O.Status;
 var EMPTY = Status.EMPTY;
 var OBSOLETE = Status.OBSOLETE;
@@ -266,7 +267,13 @@ JMAP.mail.handle( MessageList, {
         var messageToThreadSK, messageIds, threadIds, l;
 
         if ( query &&
-                args.collapseThreads === query.get( 'collapseThreads' ) ) {
+                args.collapseThreads === query.get( 'collapseThreads' ) &&
+                isEqual( args.sort, query.get( 'sort' ) ) &&
+                isEqual( args.filter, query.get( 'filter' ) ) ) {
+            if ( !args.canCalculateUpdates &&
+                    args.state !== query.get( 'state' ) ) {
+                query.messageToThreadSK = {};
+            }
             messageToThreadSK = query.messageToThreadSK;
             threadIds = args.threadIds;
             messageIds = args.idList = args.messageIds;
