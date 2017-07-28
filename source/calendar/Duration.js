@@ -62,23 +62,23 @@ var Duration = O.Class({
 
         return output;
     }
-}).extend({
-    isEqual: function ( a, b ) {
-        return a._durationInMS === b._durationInMS;
-    },
-
-    fromJSON: function ( value ) {
-        var results = value ? durationFormat.exec( value ) : null;
-        var durationInMS = 0;
-        if ( results ) {
-            durationInMS += ( +results[1] || 0 ) * 24 * 60 * 60 * 1000;
-            durationInMS += ( +results[2] || 0 ) * 60 * 60 * 1000;
-            durationInMS += ( +results[3] || 0 ) * 60 * 1000;
-            durationInMS += ( +results[4] || 0 ) * 1000;
-        }
-        return new Duration( durationInMS );
-    }
 });
+
+Duration.isEqual = function ( a, b ) {
+    return a._durationInMS === b._durationInMS;
+};
+
+Duration.fromJSON = function ( value ) {
+    var results = value ? durationFormat.exec( value ) : null;
+    var durationInMS = 0;
+    if ( results ) {
+        durationInMS += ( +results[1] || 0 ) * 24 * 60 * 60 * 1000;
+        durationInMS += ( +results[2] || 0 ) * 60 * 60 * 1000;
+        durationInMS += ( +results[3] || 0 ) * 60 * 1000;
+        durationInMS += ( +results[4] || 0 ) * 1000;
+    }
+    return new Duration( durationInMS );
+};
 
 Duration.ZERO = new Duration( 0 );
 Duration.AN_HOUR = new Duration( 60 * 60 * 1000 );

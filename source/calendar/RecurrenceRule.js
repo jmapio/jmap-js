@@ -641,14 +641,14 @@ var RecurrenceRule = O.Class({
         return !!this.getOccurrences( start, date, new Date( +date + 1000 ) )
                      .length;
     }
-}).extend({
-    dayToNumber: dayToNumber,
-    numberToDay: numberToDay,
-
-    fromJSON: function ( recurrenceRuleJSON ) {
-        return new RecurrenceRule( recurrenceRuleJSON );
-    }
 });
+
+RecurrenceRule.dayToNumber = dayToNumber;
+RecurrenceRule.numberToDay = numberToDay;
+
+RecurrenceRule.fromJSON = function ( recurrenceRuleJSON ) {
+    return new RecurrenceRule( recurrenceRuleJSON );
+};
 
 JMAP.RecurrenceRule = RecurrenceRule;
 

@@ -405,7 +405,7 @@ store.on( Mailbox, roleIndex, 'clearIndex' );
 
 // ---
 
-O.extend( JMAP.mail, {
+Object.assign( JMAP.mail, {
 
     getMessages: getMessages,
 

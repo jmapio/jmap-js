@@ -12,14 +12,16 @@
 
 ( function ( JMAP, undefined ) {
 
-var Status = O.Status,
-    EMPTY = Status.EMPTY,
-    READY = Status.READY,
-    LOADING = Status.LOADING,
-    NEW = Status.NEW;
+var Status = O.Status;
+var EMPTY = Status.EMPTY;
+var READY = Status.READY;
+var LOADING = Status.LOADING;
+var NEW = Status.NEW;
 
-var Record = O.Record,
-    attr = Record.attr;
+var Record = O.Record;
+var attr = Record.attr;
+
+// ---
 
 var MessageDetails = O.Class({ Extends: Record });
 
@@ -159,38 +161,38 @@ var Message = O.Class({
     attachments: attr( Array ),
     attachedMessages: attr( Object ),
     attachedInvites: attr( Object )
-}).extend({
-    headerProperties: [
-        'threadId',
-        'mailboxIds',
-        'isUnread',
-        'isFlagged',
-        'isAnswered',
-        'isDraft',
-        'hasAttachment',
-        'from',
-        'to',
-        'subject',
-        'date',
-        'size',
-        'preview'
-    ],
-    detailsProperties: [
-        'blobId',
-        'inReplyToMessageId',
-        'headers.list-id',
-        'headers.list-post',
-        'sender',
-        'cc',
-        'bcc',
-        'replyTo',
-        'body',
-        'attachments',
-        'attachedMessages',
-        'attachedInvites'
-    ],
-    Details: MessageDetails
 });
+
+Message.headerProperties = [
+    'threadId',
+    'mailboxIds',
+    'isUnread',
+    'isFlagged',
+    'isAnswered',
+    'isDraft',
+    'hasAttachment',
+    'from',
+    'to',
+    'subject',
+    'date',
+    'size',
+    'preview'
+];
+Message.detailsProperties = [
+    'blobId',
+    'inReplyToMessageId',
+    'headers.list-id',
+    'headers.list-post',
+    'sender',
+    'cc',
+    'bcc',
+    'replyTo',
+    'body',
+    'attachments',
+    'attachedMessages',
+    'attachedInvites'
+];
+Message.Details = MessageDetails;
 
 JMAP.mail.handle( MessageDetails, {
     fetch: function ( ids ) {

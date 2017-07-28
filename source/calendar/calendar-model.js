@@ -214,7 +214,7 @@ var now = new Date();
 var usedTimeZones = {};
 var editStore;
 
-O.extend( JMAP.calendar, {
+Object.assign( JMAP.calendar, {
 
     editStore: editStore = new O.NestedStore( store ),
 

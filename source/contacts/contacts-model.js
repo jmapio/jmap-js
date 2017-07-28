@@ -41,7 +41,7 @@ JMAP.store.on( JMAP.Contact, contactsIndex, 'clearIndex' );
 
 var editStore = new O.NestedStore( JMAP.store );
 
-O.extend( JMAP.contacts, {
+Object.assign( JMAP.contacts, {
     editStore: editStore,
 
     undoManager: new O.StoreUndoManager({

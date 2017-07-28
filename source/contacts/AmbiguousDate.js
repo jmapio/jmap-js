@@ -60,13 +60,13 @@ var AmbiguousDate = O.Class({
                 ( dayString + monthString + yearString )
         ).trim();
     }
-}).extend({
-    fromJSON: function ( json ) {
-        var parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec( json || '' );
-        return parts ?
-            new AmbiguousDate( +parts[3], +parts[2], +parts[1] ) : null;
-    }
 });
+
+AmbiguousDate.fromJSON = function ( json ) {
+    var parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec( json || '' );
+    return parts ?
+        new AmbiguousDate( +parts[3], +parts[2], +parts[1] ) : null;
+};
 
 JMAP.AmbiguousDate = AmbiguousDate;
 

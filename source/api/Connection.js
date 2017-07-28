@@ -1021,9 +1021,9 @@ var Connection = O.Class({
             // TODO: refetch accounts list and clear out any calendar data
         }
     }
-}).extend({
-    makeSetRequest: makeSetRequest
 });
+
+Connection.makeSetRequest = makeSetRequest;
 
 JMAP.Connection = Connection;
 
