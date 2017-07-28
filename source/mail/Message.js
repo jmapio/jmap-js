@@ -241,17 +241,34 @@ JMAP.mail.handle( Message, {
     // ---
 
     messages: function ( args ) {
-        var first = args.list[0];
-        var updates;
-        if ( !first || first.date ) {
+        var store = this.get( 'store' );
+        var list = args.list;
+        var updates, l, message, data, headers;
+
+        // Merge with any previous fetched headers. This is safe, because
+        // the headers are immutable.
+        l = list.length;
+        while ( l-- ) {
+            message = list[l];
+            if ( message.headers ) {
+                data = store.getData(
+                    store.getStoreKey( Message, message.id )
+                );
+                headers = data && data.headers;
+                if ( headers ) {
+                    Object.assign( message.headers, headers );
+                }
+            }
+        }
+
+        if ( !message || message.date ) {
             this.didFetch( Message, args );
         } else {
             updates = args.list.reduce( function ( updates, message ) {
                 updates[ message.id ] = message;
                 return updates;
             }, {} );
-            this.get( 'store' )
-                .sourceDidFetchPartialRecords( Message, updates );
+            store.sourceDidFetchPartialRecords( Message, updates );
         }
     },
     messageUpdates: function ( args, _, reqArgs ) {
