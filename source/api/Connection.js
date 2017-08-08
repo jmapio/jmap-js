@@ -114,9 +114,8 @@ var Connection = O.Class({
         // Map of guid( Type ) -> Id -> true
         this._recordsToFetch = {};
 
-        this._inFlightRemoteCalls = null;
-        this._inFlightCallbacks = null;
-
+        this.inFlightRemoteCalls = null;
+        this.inFlightCallbacks = null;
         this.inFlightRequest = null;
 
         Connection.parent.init.call( this, mixin );
@@ -167,7 +166,7 @@ var Connection = O.Class({
                 message: 'Data from server is not JSON.',
                 details: 'Data:\n' + event.data +
                     '\n\nin reponse to request:\n' +
-                    JSON.stringify( this._inFlightRemoteCalls, null, 2 )
+                    JSON.stringify( this.get( 'inFlightRemoteCalls' ), null, 2 )
             });
             data = [];
         }
@@ -175,9 +174,13 @@ var Connection = O.Class({
         JMAP.auth.connectionSucceeded( this );
 
         this.receive(
-            data, this._inFlightCallbacks, this._inFlightRemoteCalls );
+            data,
+            this.get( 'inFlightCallbacks' ),
+            this.get( 'inFlightRemoteCalls' )
+        );
 
-        this._inFlightRemoteCalls = this._inFlightCallbacks = null;
+        this.set( 'inFlightRemoteCalls', null )
+            .set( 'inFlightCallbacks', null );
     }.on( 'io:success' ),
 
     /**
@@ -191,8 +194,9 @@ var Connection = O.Class({
     ioDidFail: function ( event ) {
         var discardRequest = false;
         var auth = JMAP.auth;
+        var status = event.status;
 
-        switch ( event.status ) {
+        switch ( status ) {
         // 400: Bad Request
         // 413: Payload Too Large
         case 400:
@@ -201,7 +205,7 @@ var Connection = O.Class({
                 name: 'JMAP.Connection#ioDidFail',
                 message: 'Bad request made: ' + status,
                 details: 'Request was:\n' +
-                    JSON.stringify( this._inFlightRemoteCalls, null, 2 )
+                    JSON.stringify( this.get( 'inFlightRemoteCalls' ), null, 2 )
             });
             discardRequest = true;
             break;
@@ -239,8 +243,13 @@ var Connection = O.Class({
 
         if ( discardRequest ) {
             this.receive(
-                [], this._inFlightCallbacks, this._inFlightRemoteCalls );
-            this._inFlightRemoteCalls = this._inFlightCallbacks = null;
+                [],
+                this.get( 'inFlightCallbacks' ),
+                this.get( 'inFlightRemoteCalls' )
+            );
+
+            this.set( 'inFlightRemoteCalls', null )
+                .set( 'inFlightCallbacks', null );
         }
     }.on( 'io:failure', 'io:abort' ),
 
@@ -289,7 +298,7 @@ var Connection = O.Class({
 
     hasRequests: function () {
         var id;
-        if ( this._inFlightRemoteCalls || this._sendQueue.length ) {
+        if ( this.get( 'inFlightRemoteCalls' ) || this._sendQueue.length ) {
             return true;
         }
         for ( id in this._queriesToFetch ) {
@@ -323,14 +332,14 @@ var Connection = O.Class({
             return;
         }
 
-        var remoteCalls = this._inFlightRemoteCalls,
-            request;
+        var remoteCalls = this.get( 'inFlightRemoteCalls' );
+        var request;
         if ( !remoteCalls ) {
             request = this.makeRequest();
             remoteCalls = request[0];
             if ( !remoteCalls.length ) { return; }
-            this._inFlightRemoteCalls = remoteCalls;
-            this._inFlightCallbacks = request[1];
+            this.set( 'inFlightRemoteCalls', remoteCalls );
+            this.set( 'inFlightCallbacks', request[1] );
         }
 
         this.set( 'inFlightRequest',
@@ -631,25 +640,25 @@ var Connection = O.Class({
 
             source.commitChanges({
                 MyType: {
-                    primaryKey: "id",
+                    primaryKey: 'id',
                     create: {
-                        storeKeys: [ "sk1", "sk2" ],
-                        records: [{ attr: val, attr2: val2 ...}, {...}]
+                        storeKeys: [ 'sk1', 'sk2' ],
+                        records: [{ attr: val, attr2: val2 ...}, {...}],
                     },
                     update: {
-                        storeKeys: [ "sk3", "sk4", ... ],
-                        records: [{ id: "id3", attr: val ... }, {...}],
-                        changes: [{ attr: true }, ... ]
+                        storeKeys: [ 'sk3', 'sk4', ... ],
+                        records: [{ id: 'id3', attr: val ... }, {...}],
+                        changes: [{ attr: true }, ... ],
                     },
                     destroy: {
-                        storeKeys: [ "sk5", "sk6" ],
-                        ids: [ "id5", "id6" ]
+                        storeKeys: [ 'sk5', 'sk6' ],
+                        ids: [ 'id5', 'id6' ],
                     },
-                    state: "i425m515233"
+                    state: 'i425m515233',
                 },
                 MyOtherType: {
                     ...
-                }
+                },
             });
 
         Any types that are handled by the source are removed from the changes

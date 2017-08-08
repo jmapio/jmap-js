@@ -30,7 +30,18 @@ JMAP.source = new O.AggregateSource({
         JMAP.peripheral = new JMAP.Connection({
             id: 'peripheral'
         })
-    ]
+    ],
+
+    hasInFlightChanges: function () {
+        return this.sources.some( function ( source ) {
+            var inFlightRemoteCalls = source.get( 'inFlightRemoteCalls' );
+            return inFlightRemoteCalls && inFlightRemoteCalls.some(
+                function ( req ) {
+                    var method = req[0];
+                    return method.slice( 0, 3 ) !== 'get';
+                });
+        }) || !!JMAP.upload.get( 'activeConnections' );
+    },
 });
 
 JMAP.store = new O.Store({
