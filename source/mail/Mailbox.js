@@ -54,10 +54,6 @@ var Mailbox = O.Class({
 
     // ---
 
-    mustBeOnlyMailbox: attr( Boolean, {
-        defaultValue: true,
-        noSync: true
-    }),
     mayReadItems: attr( Boolean, {
         defaultValue: true,
         noSync: true
