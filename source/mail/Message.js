@@ -10,16 +10,27 @@
 
 ( function ( JMAP, undefined ) {
 
+var clone = O.clone;
 var Status = O.Status;
 var EMPTY = Status.EMPTY;
 var READY = Status.READY;
 var LOADING = Status.LOADING;
 var NEW = Status.NEW;
-
 var Record = O.Record;
 var attr = Record.attr;
 
 // ---
+
+var keywordProperty = function ( keyword ) {
+    return function ( value ) {
+        if ( value !== undefined ) {
+            this.setKeyword( keyword, value );
+        } else {
+            value = this.get( 'keywords' )[ keyword ];
+        }
+        return !!value;
+    }.property( 'keywords' );
+};
 
 var MessageDetails = O.Class({ Extends: Record });
 
@@ -40,13 +51,12 @@ var Message = O.Class({
         key: 'mailboxIds'
     }),
 
-    isUnread: attr( Boolean ),
-    isFlagged: attr( Boolean ),
-    isAnswered: attr( Boolean ),
-    isDraft: attr( Boolean ),
+    keywords: attr( Object, {
+        defaultValue: {}
+    }),
+
     hasAttachment: attr( Boolean ),
 
-    sender: attr( Object ),
     from: attr( Array ),
     to: attr( Array ),
     subject: attr( String ),
@@ -76,14 +86,40 @@ var Message = O.Class({
     }.property( 'mailboxes' ),
 
     notifyThread: function () {
-        var threadId = this.get( 'threadId' ),
-            store = this.get( 'store' );
+        var threadId = this.get( 'threadId' );
+        var store = this.get( 'store' );
         if ( threadId &&
                 ( store.getRecordStatus( JMAP.Thread, threadId ) & READY ) ) {
             this.get( 'thread' ).propertyDidChange( 'messages' );
         }
-    }.queue( 'before' ).observes( 'mailboxes',
-        'isUnread', 'isFlagged', 'isDraft', 'hasAttachment' ),
+    }.queue( 'before' ).observes( 'mailboxes', 'keywords', 'hasAttachment' ),
+
+    // ---
+
+    isUnread: function ( value ) {
+        if ( value !== undefined ) {
+            this.setKeyword( '$Seen', !value );
+        } else {
+            value = !this.get( 'keywords' ).$Seen;
+        }
+        return value;
+    }.property( 'keywords' ),
+
+    isDraft: keywordProperty( '$Draft' ),
+    isFlagged: keywordProperty( '$Flagged' ),
+    isAnswered: keywordProperty( '$Answered' ),
+    isForwarded: keywordProperty( '$Forwarded' ),
+    isPhishing: keywordProperty( '$Phishing' ),
+
+    setKeyword: function ( keyword, value ) {
+        var keywords = clone( this.get( 'keywords' ) );
+        if ( value ) {
+            keywords[ keyword ] = true;
+        } else {
+            delete keywords[ keyword ];
+        }
+        return this.set( 'keywords', keywords );
+    },
 
     // ---
 
@@ -143,12 +179,11 @@ var Message = O.Class({
 
     blobId: attr( String ),
 
-    inReplyToMessageId: attr( String ),
-
     headers: attr( Object, {
         defaultValue: {}
     }),
 
+    sender: attr( Object ),
     cc: attr( Array ),
     bcc: attr( Array ),
     replyTo: attr( Array ),
@@ -157,17 +192,13 @@ var Message = O.Class({
     htmlBody: attr( String ),
 
     attachments: attr( Array ),
-    attachedMessages: attr( Object ),
-    attachedInvites: attr( Object )
+    attachedMessages: attr( Object )
 });
 
 Message.headerProperties = [
     'threadId',
     'mailboxIds',
-    'isUnread',
-    'isFlagged',
-    'isAnswered',
-    'isDraft',
+    'keywords',
     'hasAttachment',
     'from',
     'to',
@@ -178,7 +209,9 @@ Message.headerProperties = [
 ];
 Message.detailsProperties = [
     'blobId',
-    'inReplyToMessageId',
+    'headers.message-id',
+    'headers.in-reply-to',
+    'headers.references',
     'headers.list-id',
     'headers.list-post',
     'sender',
@@ -187,8 +220,7 @@ Message.detailsProperties = [
     'replyTo',
     'body',
     'attachments',
-    'attachedMessages',
-    'attachedInvites'
+    'attachedMessages'
 ];
 Message.Details = MessageDetails;
 
@@ -216,11 +248,7 @@ JMAP.mail.handle( Message, {
                 ids: ids,
                 properties: [
                     'mailboxIds',
-                    'isUnread',
-                    'isFlagged',
-                    'isAnswered',
-                    'isDraft',
-                    'hasAttachment'
+                    'keywords'
                 ]
             });
         } else {

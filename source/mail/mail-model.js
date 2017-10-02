@@ -56,9 +56,19 @@ var updateMailboxCounts = function ( mailboxDeltas ) {
 
 // --- Preemptive query updates ---
 
+var filterHasKeyword = function ( filter, keyword ) {
+    return (
+        keyword === filter.allInThreadHaveKeyword ||
+        keyword === filter.someInThreadHaveKeyword ||
+        keyword === filter.noneInThreadHaveKeyword ||
+        keyword === filter.hasKeyword ||
+        keyword === filter.notKeyword
+    );
+};
+
 var isSortedOnUnread = function ( sort ) {
     for ( var i = 0, l = sort.length; i < l; i += 1 ) {
-        if ( /isUnread/.test( sort[i] ) ) {
+        if ( /:$Seen /.test( sort[i] ) ) {
             return true;
         }
     }
@@ -68,11 +78,11 @@ var isFilteredOnUnread = function ( filter ) {
     if ( filter.operator ) {
         return filter.conditions.some( isFilteredOnUnread );
     }
-    return 'isUnread' in filter;
+    return filterHasKeyword( filter, '$Seen' );
 };
 var isSortedOnFlagged = function ( sort ) {
     for ( var i = 0, l = sort.length; i < l; i += 1 ) {
-        if ( /isFlagged/.test( sort[i] ) ) {
+        if ( /:$Flagged /.test( sort[i] ) ) {
             return true;
         }
     }
@@ -82,7 +92,7 @@ var isFilteredOnFlagged = function ( filter ) {
     if ( filter.operator ) {
         return filter.conditions.some( isFilteredOnFlagged );
     }
-    return 'isFlagged' in filter;
+    return filterHasKeyword( filter, '$Flagged' );
 };
 var isFilteredOnMailboxes = function ( filter ) {
     if ( filter.operator ) {
@@ -148,14 +158,14 @@ var comparators = {
 
         return aSubject < bSubject ? -1 : aSubject > bSubject ? 1 : 0;
     },
-    isFlagged: function ( a, b ) {
+    'keyword:$Flagged': function ( a, b ) {
         var aFlagged = a.get( 'isFlagged' );
         var bFlagged = b.get( 'isFlagged' );
 
         return aFlagged === bFlagged ? 0 :
             aFlagged ? -1 : 1;
     },
-    isFlaggedThread: function ( a, b ) {
+    'someThreadKeyword:$Flagged': function ( a, b ) {
         return comparators.isFlagged( a.get( 'thread' ), b.get( 'thread' ) );
     }
 };
@@ -189,23 +199,16 @@ var compareToMessage = function ( fields, aData, bData ) {
     return 0;
 };
 
-var splitDirection = function ( fields, collapseThreads ) {
-    return fields.map( function ( field ) {
-        var space = field.indexOf( ' ' );
-        var prop = space ? field.slice( 0, space ) : field;
-        var dir = space && field.slice( space + 1 ) === 'asc' ? 1 : -1;
-
-        if ( collapseThreads && /^is/.test( prop ) ) {
-            prop += 'Thread';
-        }
-        return [ prop, dir ];
-    });
+var splitDirection = function ( field ) {
+    var space = field.indexOf( ' ' );
+    var prop = space ? field.slice( 0, space ) : field;
+    var dir = space && field.slice( space + 1 ) === 'asc' ? 1 : -1;
+    return [ prop, dir ];
 };
 
 var calculatePreemptiveAdd = function ( query, addedMessages ) {
     var storeKeyList = query._list;
-    var sort = splitDirection(
-            query.get( 'sort' ), query.get( 'collapseThreads' ) );
+    var sort = query.get( 'sort' ).map( splitDirection );
     var comparator = compareToStoreKey.bind( null, sort );
     var added = addedMessages.reduce( function ( added, message ) {
             added.push({
@@ -386,7 +389,7 @@ var roleIndex = new O.Object({
         this.index = null;
     },
     buildIndex: function () {
-        return this.index = store.getAll( Mailbox ).reduce(
+        var index = this.index = store.getAll( Mailbox ).reduce(
             function ( index, mailbox ) {
                 var role = mailbox.get( 'role' );
                 if ( role ) {
@@ -394,6 +397,7 @@ var roleIndex = new O.Object({
                 }
                 return index;
             }, {} );
+        return index;
     },
     getIndex: function () {
         return this.index || this.buildIndex();
