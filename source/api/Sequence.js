@@ -37,23 +37,20 @@ var Sequence = O.Class({
     },
 
     go: function go ( data ) {
-        var index = this.index,
-            length = this.length,
-            fn = this.queue[ index ];
+        var index = this.index;
+        var length = this.length;
         if ( index < length ) {
-            index += 1;
-            this.set( 'index', index );
-            fn( go.bind( this ), data );
-            if ( index === length ) {
-                this.afterwards( index, length );
-            }
+            this.set( 'index', index + 1 );
+            this.queue[ index ]( go.bind( this ), data );
+        } else if ( index === length ) {
+            this.afterwards( index, length );
         }
         return this;
     },
 
     cancel: function () {
-        var index = this.index,
-            length = this.length;
+        var index = this.index;
+        var length = this.length;
         if ( index < length ) {
             this.set( 'length', 0 );
             this.afterwards( index, length );
@@ -66,7 +63,7 @@ var Sequence = O.Class({
         var index = this.index,
             length = this.length;
         return length ? Math.round( ( index / length ) * 100 ) : 100;
-    }.property( 'index', 'length' )
+    }.property( 'index', 'length' ),
 });
 
 JMAP.Sequence = Sequence;
