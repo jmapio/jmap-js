@@ -798,8 +798,8 @@ var Connection = O.Class({
             {JMAP.Connection} Returns self.
     */
     handle: function ( Type, handlers ) {
-        var typeId = O.guid( Type ),
-            action, propName, isResponse, actionHandlers;
+        var typeId = O.guid( Type );
+        var action, propName, isResponse, actionHandlers;
         for ( action in handlers ) {
             propName = handleProps[ action ];
             isResponse = !propName;
@@ -812,6 +812,9 @@ var Connection = O.Class({
                     Object.create( actionHandlers );
             }
             actionHandlers[ isResponse ? action : typeId ] = handlers[ action ];
+        }
+        if ( Type ) {
+            Type.source = this;
         }
         return this;
     },
