@@ -199,11 +199,16 @@ var Connection = O.Class({
         // 413: Payload Too Large
         case 400:
         case 413:
+            var response = event.data;
             O.RunLoop.didError({
                 name: 'JMAP.Connection#ioDidFail',
                 message: 'Bad request made: ' + status,
                 details: 'Request was:\n' +
-                    JSON.stringify( this.get( 'inFlightRemoteCalls' ), null, 2 )
+                    JSON.stringify(
+                        this.get( 'inFlightRemoteCalls' ), null, 2 ) +
+                    '\n\nResponse was:\n' +
+                    ( response ? JSON.stringify( response, null, 2 ) :
+                        '(no data, the response probably wasn’t valid JSON)' ),
             });
             discardRequest = true;
             break;
