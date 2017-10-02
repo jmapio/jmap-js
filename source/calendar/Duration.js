@@ -1,8 +1,6 @@
 // -------------------------------------------------------------------------- \\
 // File: Duration.js                                                          \\
 // Module: CalendarModel                                                      \\
-// Author: Neil Jenkins                                                       \\
-// License: © 2010-2016 FastMail Pty Ltd. MIT Licensed.                       \\
 // -------------------------------------------------------------------------- \\
 
 /*global O, JMAP */

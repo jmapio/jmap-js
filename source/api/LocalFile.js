@@ -2,8 +2,6 @@
 // File: LocalFile.js                                                         \\
 // Module: API                                                                \\
 // Requires: connections.js                                                   \\
-// Author: Neil Jenkins                                                       \\
-// License: © 2010-2015 FastMail Pty Ltd. MIT Licensed.                       \\
 // -------------------------------------------------------------------------- \\
 
 /*global O, JMAP */

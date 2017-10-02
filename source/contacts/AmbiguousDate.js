@@ -1,8 +1,6 @@
 // -------------------------------------------------------------------------- \\
 // File: AmbiguousDate.js                                                     \\
 // Module: ContactsModel                                                      \\
-// Author: Neil Jenkins                                                       \\
-// License: © 2010-2015 FastMail Pty Ltd. MIT Licensed.                       \\
 // -------------------------------------------------------------------------- \\
 
 /*global O, JMAP */

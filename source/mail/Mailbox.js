@@ -2,8 +2,6 @@
 // File: Mailbox.js                                                           \\
 // Module: MailModel                                                          \\
 // Requires: API                                                              \\
-// Author: Neil Jenkins                                                       \\
-// License: © 2010-2015 FastMail Pty Ltd. MIT Licensed.                       \\
 // -------------------------------------------------------------------------- \\
 
 /*global O, JMAP */

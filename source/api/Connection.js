@@ -2,8 +2,6 @@
 // File: Connection.js                                                        \\
 // Module: API                                                                \\
 // Requires: Auth.js                                                          \\
-// Author: Neil Jenkins                                                       \\
-// License: © 2010-2014 FastMail Pty Ltd. MIT Licensed.                       \\
 // -------------------------------------------------------------------------- \\
 
 /*global O, JMAP, JSON, console, alert */

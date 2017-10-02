@@ -2,8 +2,6 @@
 // File: CalendarEventOccurrence.js                                           \\
 // Module: CalendarModel                                                      \\
 // Requires: CalendarEvent.js                                                 \\
-// Author: Neil Jenkins                                                       \\
-// License: © 2010-2015 FastMail Pty Ltd. MIT Licensed.                       \\
 // -------------------------------------------------------------------------- \\
 
 /*global O, JMAP */
