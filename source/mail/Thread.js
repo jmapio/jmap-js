@@ -179,7 +179,11 @@ JMAP.mail.handle( Thread, {
     },
     refresh: function ( ids, state ) {
         if ( ids ) {
-            this.fetchRecords( Thread, ids );
+            this.callMethod( 'getThreads', {
+                ids: ids,
+                fetchMessages: false,
+                fetchMessageProperties: null
+            });
         } else {
             this.callMethod( 'getThreadUpdates', {
                 sinceState: state,
