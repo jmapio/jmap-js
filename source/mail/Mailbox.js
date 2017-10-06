@@ -216,8 +216,8 @@ JMAP.mail.handle( Mailbox, {
     // ---
 
     mailboxes: function ( args, reqMethod, reqArgs ) {
-        this.didFetch( Mailbox, args,
-            reqMethod === 'getMailboxes' && !reqArgs.ids );
+        var isAll = ( reqMethod === 'getMailboxes' && !reqArgs.ids );
+        this.didFetch( Mailbox, args, isAll );
     },
 
     mailboxUpdates: function ( args, _, reqArgs ) {

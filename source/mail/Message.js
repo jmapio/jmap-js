@@ -242,6 +242,7 @@ JMAP.mail.handle( Message, {
             properties: Message.headerProperties
         });
     },
+
     refresh: function ( ids, state ) {
         if ( ids ) {
             this.callMethod( 'getMessages', {
@@ -262,6 +263,7 @@ JMAP.mail.handle( Message, {
             });
         }
     },
+
     commit: 'setMessages',
 
     // ---
