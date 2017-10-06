@@ -38,7 +38,9 @@ var Message = O.Class({
 
     Extends: Record,
 
-    threadId: attr( String ),
+    threadId: attr( String, {
+        noSync: true,
+    }),
 
     thread: function () {
         var threadId = this.get( 'threadId' );
@@ -236,6 +238,8 @@ JMAP.mail.handle( MessageDetails, {
 JMAP.mail.messageUpdateFetchRecords = true;
 JMAP.mail.messageUpdateMaxChanges = 50;
 JMAP.mail.handle( Message, {
+    precedence: 1,
+
     fetch: function ( ids ) {
         this.callMethod( 'getMessages', {
             ids: ids,

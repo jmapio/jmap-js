@@ -1,7 +1,7 @@
 // -------------------------------------------------------------------------- \\
 // File: mail-model.js                                                        \\
 // Module: MailModel                                                          \\
-// Requires: API, Mailbox.js, Thread.js, Message.js, MessageList.js           \\
+// Requires: API, Mailbox.js, Thread.js, Message.js, MessageList.js, MessageSubmission.js \\
 // -------------------------------------------------------------------------- \\
 
 /*global O, JMAP */
@@ -15,6 +15,7 @@ var Mailbox = JMAP.Mailbox;
 var Thread = JMAP.Thread;
 var Message = JMAP.Message;
 var MessageList = JMAP.MessageList;
+var MessageSubmission = JMAP.MessageSubmission;
 
 // --- Preemptive mailbox count updates ---
 
@@ -976,47 +977,147 @@ Object.assign( JMAP.mail, {
 
     // ---
 
-    saveDraft: function ( message ) {
-        var inReplyToMessageId = message.get( 'inReplyToMessageId' );
-        var inReplyToMessage = null;
-        var thread = null;
-        var messages = null;
-        var isFirstDraft = true;
-        if ( inReplyToMessageId &&
-                ( store.getRecordStatus(
-                    Message, inReplyToMessageId ) & READY ) ) {
-            inReplyToMessage = store.getRecord( Message, inReplyToMessageId );
-            thread = inReplyToMessage.get( 'thread' );
-            if ( thread && thread.is( READY ) ) {
-                messages = thread.get( 'messages' );
+    create: function ( message ) {
+        var thread = message.get( 'thread' );
+        var mailboxes = message.get( 'mailboxes' );
+        var wasThreadUnreadInNotTrash = false;
+        var wasThreadUnreadInTrash = false;
+        var isThreadUnreadInNotTrash = false;
+        var isThreadUnreadInTrash = false;
+        var deltaThreadUnreadInTrash = false;
+        var deltaThreadUnreadInNotTrash = false;
+        var isDraft = message.get( 'isDraft' );
+        var isUnread = !isDraft && message.get( 'isUnread' );
+        var mailboxDeltas = {};
+        var mailboxCounts = null;
+        var messageSK, mailboxId, mailbox, isTrash;
+
+        // Cache the current thread state
+        if ( thread && thread.is( READY ) ) {
+            mailboxCounts = thread.get( 'mailboxCounts' );
+            wasThreadUnreadInNotTrash = thread.get( 'isUnreadInNotTrash' );
+            wasThreadUnreadInTrash = thread.get( 'isUnreadInTrash' );
+        }
+
+        // If not in any mailboxes, make it a draft
+        if ( mailboxes.get( 'length' ) === 0 ) {
+            message
+                .set( 'isDraft', true )
+                .set( 'isUnread', false );
+            mailboxes.add(
+                store.getRecord( Mailbox, this.getMailboxIdForRole( 'drafts' ) )
+            );
+        }
+
+        // Create the message
+        message.saveToStore();
+        messageSK = message.get( 'storeKey' );
+
+        if ( mailboxCounts ) {
+            // Preemptively update the thread
+            var inReplyTo = isDraft &&
+                    message.getFromPath( 'headers.in-reply-to' ) || '';
+            var messages = thread.get( 'messages' );
+            var seenInReplyTo = false;
+            var l = messages.get( 'length' );
+            var i, messageInThread;
+
+            if ( inReplyTo ) {
+                for ( i = 0; i < l; i += 1 ) {
+                    messageInThread = messages.getObjectAt( i );
+                    if ( seenInReplyTo ) {
+                        if ( !messageInThread.get( 'isDraft') ||
+                                inReplyTo !== messageInThread
+                                    .getFromPath( 'headers.in-reply-to' ) ) {
+                            break;
+                        }
+                    } else if ( inReplyTo === messageInThread
+                            .getFromPath( 'headers.message-id' ) ) {
+                        seenInReplyTo = true;
+                    }
+                }
+            } else {
+                i = l;
+            }
+            messages.replaceObjectsAt( i, 0, [ message ] );
+            thread.refresh();
+
+            // Calculate any changes to the mailbox message counts
+            isThreadUnreadInNotTrash = thread.get( 'isUnreadInNotTrash' );
+            isThreadUnreadInTrash = thread.get( 'isUnreadInTrash' );
+
+            deltaThreadUnreadInNotTrash =
+                ( isThreadUnreadInNotTrash ? 1 : 0 ) -
+                ( wasThreadUnreadInNotTrash ? 1 : 0 );
+            deltaThreadUnreadInTrash =
+                ( isThreadUnreadInTrash ? 1 : 0 ) -
+                ( wasThreadUnreadInTrash ? 1 : 0 );
+        }
+
+        mailboxes.forEach( function ( mailbox ) {
+            var delta =
+                getMailboxDelta( mailboxDeltas, mailbox.get( 'id' ) );
+            delta.added.push( messageSK );
+            delta.totalMessages += 1;
+            if ( isUnread ) {
+                delta.unreadMessages += 1;
+            }
+            if ( mailboxCounts && !mailboxCounts[ mailboxId ] ) {
+                delta.totalThreads += 1;
+                if ( mailbox.get( 'role' ) === 'trash' ?
+                        isThreadUnreadInTrash : isThreadUnreadInNotTrash ) {
+                    delta.unreadThreads += 1;
+                }
+            }
+        });
+
+        for ( mailboxId in mailboxCounts ) {
+            mailbox = store.getRecord( Mailbox, mailboxId );
+            isTrash = mailbox.get( 'role' ) === 'trash';
+            if ( !mailboxes.contains( mailbox ) ) {
+                if ( isTrash && deltaThreadUnreadInTrash ) {
+                    getMailboxDelta( mailboxDeltas, mailboxId )
+                        .unreadThreads += deltaThreadUnreadInTrash;
+                } else if ( !isTrash && deltaThreadUnreadInNotTrash ) {
+                    getMailboxDelta( mailboxDeltas, mailboxId )
+                        .unreadThreads += deltaThreadUnreadInNotTrash;
+                }
             }
         }
 
-        // Save message
-        message.get( 'mailboxes' ).add(
-            store.getRecord( Mailbox, this.getMailboxIdForRole( 'drafts' ) )
-        );
-        message.saveToStore();
+        // Update counts on mailboxes
+        updateMailboxCounts( mailboxDeltas );
 
-        // Pre-emptively update thread
-        if ( messages ) {
-            isFirstDraft = !messages.some( function ( message ) {
-                return message.isIn( 'drafts' );
-            });
-            messages.replaceObjectsAt(
-                messages.indexOf( inReplyToMessage ) + 1, 0, [ message ] );
-            thread.refresh();
-        }
-
-        // Pre-emptively update draft mailbox counts
-        store.getRecord( Mailbox, this.getMailboxIdForRole( 'drafts' ) )
-            .increment( 'totalMessages', 1 )
-            .increment( 'totalThreads', isFirstDraft ? 1 : 0 )
-            .setObsolete()
-            .refresh();
+        // Update message list queries, or mark in need of refresh
+        updateQueries( isTrue, isFalse, mailboxDeltas );
 
         return this;
-    }
+    },
+
+    // ---
+
+    redirect: function ( messages, identity, to ) {
+        var envelope = {
+            mailFrom: {
+                email: identity.get( 'email' ),
+                parameters: null,
+            },
+            rcptTo: to.map( function ( address ) {
+                return {
+                    email: address.email,
+                    parameters: null,
+                };
+            }),
+        };
+
+        return messages.map( function ( message ) {
+            new MessageSubmission( store )
+                .set( 'identity', identity )
+                .set( 'message', message )
+                .set( 'envelope', envelope )
+                .saveToStore();
+        });
+    },
 });
 
 }( JMAP ) );
