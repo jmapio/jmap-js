@@ -99,6 +99,15 @@ JMAP.auth = new O.Object({
         );
     },
 
+    blobUrlRegExp: function () {
+        return new RegExp( '^' +
+            this.get( 'downloadUrl' ).escapeRegExp()
+                .replace( '{accountId}'.escapeRegExp(), '.*?' )
+                .replace( '{blobId}'.escapeRegExp(), '(.*?)' )
+                .replace( '{name}'.escapeRegExp(), '.*?' )
+        );
+    }.property( 'proxyUrl' ),
+
     // ---
 
     didAuthenticate: function ( data ) {
