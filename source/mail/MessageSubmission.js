@@ -135,9 +135,9 @@ JMAP.mail.handle( MessageSubmission, {
         var draftsId = this.getMailboxIdForRole( 'drafts' );
         var sentId = this.getMailboxIdForRole( 'sent' );
         var updateMessage = {};
-        updateMessage[ 'mailboxIds.' + sentId ] = null;
-        updateMessage[ 'mailboxIds.' + draftsId ] = true;
-        updateMessage[ 'keywords.$Draft' ] = true;
+        updateMessage[ 'mailboxIds/' + sentId ] = null;
+        updateMessage[ 'mailboxIds/' + draftsId ] = true;
+        updateMessage[ 'keywords/$Draft' ] = true;
 
         // On create move from drafts, remove $Draft keyword
         for ( id in create ) {
