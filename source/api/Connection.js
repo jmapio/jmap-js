@@ -940,8 +940,8 @@ var Connection = O.Class({
         var hasDataForChanged = reqArgs.fetchRecords;
         this.get( 'store' )
             .sourceDidFetchUpdates( Type,
-                hasDataForChanged ? null : args.changed,
-                args.removed,
+                hasDataForChanged ? null : args.changed || null,
+                args.removed || null,
                 args.oldState,
                 args.newState
             );

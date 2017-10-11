@@ -264,6 +264,9 @@ JMAP.mail.handle( MessageList, {
         var query = store.getQuery( getId( args ) );
         var messageToThreadSK, messageIds, threadIds, l;
 
+        args.filter = args.filter || null;
+        args.sort = args.sort || null;
+
         if ( query &&
                 args.collapseThreads === query.get( 'collapseThreads' ) &&
                 isEqual( args.sort, query.get( 'sort' ) ) &&
@@ -295,6 +298,11 @@ JMAP.mail.handle( MessageList, {
         var store = this.get( 'store' );
         var query = store.getQuery( getId( args ) );
         var messageToThreadSK;
+
+        args.filter = args.filter || null;
+        args.sort = args.sort || null;
+        args.removed = args.removed || [];
+        args.added = args.added || [];
 
         if ( query &&
                 args.collapseThreads === query.get( 'collapseThreads' ) ) {
