@@ -1111,7 +1111,7 @@ Object.assign( JMAP.mail, {
         };
 
         return messages.map( function ( message ) {
-            new MessageSubmission( store )
+            return new MessageSubmission( store )
                 .set( 'identity', identity )
                 .set( 'message', message )
                 .set( 'envelope', envelope )

@@ -8,7 +8,7 @@
 
 'use strict';
 
-( function ( JMAP, undefined ) {
+( function ( JMAP ) {
 
 var Record = O.Record;
 var attr = Record.attr;
