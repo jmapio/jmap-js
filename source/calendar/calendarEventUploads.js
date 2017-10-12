@@ -157,7 +157,7 @@ var CalendarAttachment = O.Class({
         this.editEvent = event;
         this.inServer = false;
         this.inEdit = true;
-        CalendarAttachment.parent.init.call( this, file );
+        CalendarAttachment.parent.constructor.call( this, file );
     },
 
     uploadDidSucceed: function () {

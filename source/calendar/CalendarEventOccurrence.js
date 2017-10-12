@@ -189,7 +189,7 @@ var CalendarEventOccurrence = O.Class({
         this.store = original.get( 'store' );
         this.storeKey = original.get( 'storeKey' ) + id;
 
-        CalendarEventOccurrence.parent.init.call( this );
+        CalendarEventOccurrence.parent.constructor.call( this );
         original.on( 'highlightView', this, 'echoEvent' );
     },
 

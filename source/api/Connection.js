@@ -116,7 +116,7 @@ var Connection = O.Class({
         this.inFlightCallbacks = null;
         this.inFlightRequest = null;
 
-        Connection.parent.init.call( this, mixin );
+        Connection.parent.constructor.call( this, mixin );
     },
 
     prettyPrint: false,

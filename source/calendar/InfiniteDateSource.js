@@ -14,7 +14,7 @@ var InfiniteDateSource = O.Class({
     Extends: O.ObservableArray,
 
     init: function ( mixin ) {
-        InfiniteDateSource.parent.init.call( this, null, mixin );
+        InfiniteDateSource.parent.constructor.call( this, null, mixin );
         this.windowLengthDidChange();
     },
 

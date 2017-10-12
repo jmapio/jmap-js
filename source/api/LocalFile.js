@@ -31,7 +31,7 @@ var LocalFile = O.Class({
 
         this._backoff = 500;
 
-        LocalFile.parent.init.call( this );
+        LocalFile.parent.constructor.call( this );
     },
 
     destroy: function () {

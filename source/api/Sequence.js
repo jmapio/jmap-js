@@ -22,7 +22,7 @@ var Sequence = O.Class({
         this.length = 0;
         this.afterwards = noop;
 
-        Sequence.parent.init.call( this );
+        Sequence.parent.constructor.call( this );
     },
 
     then: function ( fn ) {

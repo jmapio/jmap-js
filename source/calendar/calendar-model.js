@@ -186,7 +186,7 @@ var EventsList = O.Class({
 
         eventsLists.push( this );
 
-        EventsList.parent.init.call( this,
+        EventsList.parent.constructor.call( this,
             getEventsForDate( date, JMAP.calendar.get( 'timeZone' ), allDay ));
     },
 

@@ -67,7 +67,7 @@ var MessageList = O.Class({
 
         this.messageToThreadSK = {};
 
-        MessageList.parent.init.call( this, options );
+        MessageList.parent.constructor.call( this, options );
     },
 
     // Precondition: All ids are fetched for the window to be checked.
