@@ -83,7 +83,7 @@ const isFilteredOnUnread = function ( filter ) {
 };
 const isSortedOnFlagged = function ( sort ) {
     for ( var i = 0, l = sort.length; i < l; i += 1 ) {
-        if ( /:$Flagged /.test( sort[i] ) ) {
+        if ( /:\$Flagged /.test( sort[i] ) ) {
             return true;
         }
     }
