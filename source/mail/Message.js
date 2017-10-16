@@ -50,7 +50,8 @@ const Message = O.Class({
 
     mailboxes: Record.toMany({
         recordType: JMAP.Mailbox,
-        key: 'mailboxIds'
+        key: 'mailboxIds',
+        Type: Object,
     }),
 
     keywords: attr( Object, {
