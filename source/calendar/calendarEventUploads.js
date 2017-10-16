@@ -149,7 +149,7 @@ JMAP.calendar.eventUploads = {
     }
 };
 
-var CalendarAttachment = O.Class({
+const CalendarAttachment = O.Class({
 
     Extends: JMAP.LocalFile,
 

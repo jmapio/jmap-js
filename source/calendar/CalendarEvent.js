@@ -10,14 +10,14 @@
 
 ( function ( JMAP, undefined ) {
 
-var Record = O.Record;
-var attr = Record.attr;
+const Record = O.Record;
+const attr = Record.attr;
 
-var numerically = function ( a, b ) {
+const numerically = function ( a, b ) {
     return a - b;
 };
 
-var CalendarEvent = O.Class({
+const CalendarEvent = O.Class({
 
     Extends: Record,
 
@@ -600,18 +600,18 @@ var CalendarEvent = O.Class({
 
 // ---
 
-var dayToNumber = JMAP.RecurrenceRule.dayToNumber;
+const dayToNumber = JMAP.RecurrenceRule.dayToNumber;
 
-var byNthThenDay = function ( a, b ) {
+const byNthThenDay = function ( a, b ) {
     var aNthOfPeriod = a.nthOfPeriod || 0;
     var bNthOfPeriod = b.nthOfPeriod || 0;
     return ( aNthOfPeriod - bNthOfPeriod ) ||
         ( dayToNumber[ a.day ] - dayToNumber[ b.day ] );
 };
 
-var numericArrayProps = [ 'byDate', 'byYearDay', 'byWeekNo', 'byHour', 'byMinute', 'bySecond', 'bySetPosition' ];
+const numericArrayProps = [ 'byDate', 'byYearDay', 'byWeekNo', 'byHour', 'byMinute', 'bySecond', 'bySetPosition' ];
 
-var normaliseRecurrenceRule = function ( recurrenceRuleJSON ) {
+const normaliseRecurrenceRule = function ( recurrenceRuleJSON ) {
     var byDay, byMonth, i, l, key, value;
     if ( !recurrenceRuleJSON ) {
         return;
@@ -652,7 +652,7 @@ var normaliseRecurrenceRule = function ( recurrenceRuleJSON ) {
     }
 };
 
-var alertOffsetFromJSON = function ( alerts ) {
+const alertOffsetFromJSON = function ( alerts ) {
     if ( !alerts ) {
         return null;
     }

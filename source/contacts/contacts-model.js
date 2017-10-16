@@ -10,7 +10,7 @@
 
 ( function ( JMAP ) {
 
-var contactsIndex = new O.Object({
+const contactsIndex = new O.Object({
     index: null,
     clearIndex: function () {
         this.index = null;
@@ -37,7 +37,7 @@ var contactsIndex = new O.Object({
 });
 JMAP.store.on( JMAP.Contact, contactsIndex, 'clearIndex' );
 
-var editStore = new O.NestedStore( JMAP.store );
+const editStore = new O.NestedStore( JMAP.store );
 
 Object.assign( JMAP.contacts, {
     editStore: editStore,

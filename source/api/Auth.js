@@ -10,18 +10,18 @@
 
 ( function ( JMAP ) {
 
-var base64encode = function ( object ) {
+const base64encode = function ( object ) {
     return btoa( JSON.stringify( object ) );
 };
 
-var b64tob64url = function ( string ) {
+const b64tob64url = function ( string ) {
     return string
         .replace( /\=/g, '' )
         .replace( /\+/g, '-' )
         .replace( /\//g, '_' );
 };
 
-var b64urltob64 = function ( string ) {
+const b64urltob64 = function ( string ) {
     return string
         .replace( /\-/g, '+' )
         .replace( /\_/g, '/' );

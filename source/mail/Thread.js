@@ -10,26 +10,26 @@
 
 ( function ( JMAP ) {
 
-var Record = O.Record;
-var READY = O.Status.READY;
+const Record = O.Record;
+const READY = O.Status.READY;
 
 // ---
 
-var isInTrash = function ( message ) {
+const isInTrash = function ( message ) {
     return message.is( READY ) && message.get( 'isInTrash' );
 };
-var isInNotTrash = function ( message ) {
+const isInNotTrash = function ( message ) {
     return message.is( READY ) && message.get( 'isInNotTrash' );
 };
 
-var aggregateBoolean = function ( _, key ) {
+const aggregateBoolean = function ( _, key ) {
     return this.get( 'messages' ).reduce(
     function ( isProperty, message ) {
         return isProperty || message.get( key );
     }, false );
 }.property( 'messages' ).nocache();
 
-var aggregateBooleanInNotTrash = function ( _, key ) {
+const aggregateBooleanInNotTrash = function ( _, key ) {
     key = key.slice( 0, -10 );
     return this.get( 'messagesInNotTrash' ).reduce(
     function ( isProperty, message ) {
@@ -37,7 +37,7 @@ var aggregateBooleanInNotTrash = function ( _, key ) {
     }, false );
 }.property( 'messages' ).nocache();
 
-var aggregateBooleanInTrash = function ( _, key ) {
+const aggregateBooleanInTrash = function ( _, key ) {
     key = key.slice( 0, -7 );
     return this.get( 'messagesInTrash' ).reduce(
     function ( isProperty, message ) {
@@ -45,18 +45,18 @@ var aggregateBooleanInTrash = function ( _, key ) {
     }, false );
 }.property( 'messages' ).nocache();
 
-var total = function( property ) {
+const total = function( property ) {
     return function () {
         return this.get( property ).get( 'length' );
     }.property( 'messages' ).nocache();
 };
 
 // senders is [{name: String, email: String}]
-var toFrom = function ( message ) {
+const toFrom = function ( message ) {
     var from = message.get( 'from' );
     return from && from[0] || null;
 };
-var senders = function( property ) {
+const senders = function( property ) {
     return function () {
         return this.get( property )
                    .map( toFrom )
@@ -64,16 +64,16 @@ var senders = function( property ) {
     }.property( 'messages' ).nocache();
 };
 
-var sumSize = function ( size, message ) {
+const sumSize = function ( size, message ) {
     return size + ( message.get( 'size' ) || 0 );
 };
-var size = function( property ) {
+const size = function( property ) {
     return function () {
         return this.get( property ).reduce( sumSize, 0 );
     }.property( 'messages' ).nocache();
 };
 
-var Thread = O.Class({
+const Thread = O.Class({
 
     Extends: Record,
 

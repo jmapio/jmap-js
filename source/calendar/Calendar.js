@@ -10,10 +10,10 @@
 
 ( function ( JMAP, undefined ) {
 
-var Record = O.Record,
+const Record = O.Record,
     attr = Record.attr;
 
-var Calendar = O.Class({
+const Calendar = O.Class({
 
     Extends: Record,
 

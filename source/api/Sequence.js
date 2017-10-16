@@ -10,9 +10,9 @@
 
 ( function ( JMAP ) {
 
-var noop = function () {};
+const noop = function () {};
 
-var Sequence = O.Class({
+const Sequence = O.Class({
 
     Extends: O.Object,
 

@@ -10,28 +10,27 @@
 
 ( function ( JMAP, undefined ) {
 
-var isEqual = O.isEqual;
-var Status = O.Status;
-var EMPTY = Status.EMPTY;
-var OBSOLETE = Status.OBSOLETE;
+const Status = O.Status;
+const EMPTY = Status.EMPTY;
+const OBSOLETE = Status.OBSOLETE;
 
-var Message = JMAP.Message;
-var Thread = JMAP.Thread;
+const Message = JMAP.Message;
+const Thread = JMAP.Thread;
 
-var isFetched = function ( message ) {
+const isFetched = function ( message ) {
     return !message.is( EMPTY|OBSOLETE );
 };
-var refresh = function ( record ) {
+const refresh = function ( record ) {
     if ( record.is( OBSOLETE ) ) {
-        record.refresh();
+        record.fetch();
     }
 };
 
-var EMPTY_SNIPPET = {
+const EMPTY_SNIPPET = {
     body: ' '
 };
 
-var stringifySorted = function ( item ) {
+const stringifySorted = function ( item ) {
     if ( !item || ( typeof item !== 'object' ) ) {
         return JSON.stringify( item );
     }
@@ -45,14 +44,15 @@ var stringifySorted = function ( item ) {
     }).join( ',' ) + '}';
 };
 
-var getId = function ( args ) {
-    return 'ml:' + stringifySorted( args.filter ) +
+const getId = function ( args ) {
+    return 'ml:' + stringifySorted( args.where || args.filter ) + ':' +
+        JSON.stringify( args.sort ) +
         ( args.collapseThreads ? '+' : '-' );
 };
 
-var MessageList = O.Class({
+const MessageList = O.Class({
 
-    Extends: O.WindowedRemoteQuery,
+    Extends: O.WindowedQuery,
 
     optimiseFetching: true,
 
@@ -74,14 +74,14 @@ var MessageList = O.Class({
     checkIfWindowIsFetched: function ( index ) {
         var store = this.get( 'store' );
         var windowSize = this.get( 'windowSize' );
-        var list = this._list;
+        var storeKeys = this.getStoreKeys();
         var i = index * windowSize;
         var l = Math.min( i + windowSize, this.get( 'length' ) );
         var collapseThreads = this.get( 'collapseThreads' );
         var messageToThreadSK = this.messageToThreadSK;
         var messageSK, threadSK, thread;
         for ( ; i < l; i += 1 ) {
-            messageSK = list[i];
+            messageSK = storeKeys[i];
             // No message, or out-of-date
             if ( store.getStatus( messageSK ) & (EMPTY|OBSOLETE) ) {
                 return false;
@@ -92,7 +92,7 @@ var MessageList = O.Class({
                 if ( store.getStatus( Thread, threadSK ) & (EMPTY|OBSOLETE) ) {
                     return false;
                 }
-                thread = store.getRecord( Thread, '#' + threadSK );
+                thread = store.getRecordFromStoreKey( threadSK );
                 return thread.get( 'messages' ).every( isFetched );
             }
         }
@@ -104,7 +104,7 @@ var MessageList = O.Class({
 
         // If we have all the ids already, optimise the loading of the records.
         var store = this.get( 'store' );
-        var list = this._list;
+        var storeKeys = this.getStoreKeys();
         var length = this.get( 'length' );
         var collapseThreads = this.get( 'collapseThreads' );
         var messageToThreadSK = this.messageToThreadSK;
@@ -119,11 +119,11 @@ var MessageList = O.Class({
             }
 
             while ( i < l ) {
-                messageSK = list[i];
+                messageSK = storeKeys[i];
                 if ( messageSK ) {
                     i += 1;
                 } else {
-                    messageSK = list[ l - 1 ];
+                    messageSK = storeKeys[ l - 1 ];
                     if ( !messageSK ) { break; }
                     l -= 1;
                 }
@@ -131,12 +131,12 @@ var MessageList = O.Class({
                 // If already fetched, fetch the updates
                 if ( collapseThreads ) {
                     threadSK = messageToThreadSK[ messageSK ];
-                    thread = store.getRecord( Thread, '#' + threadSK );
+                    thread = store.getRecordFromStoreKey( threadSK );
                     // If already fetched, fetch the updates
                     refresh( thread );
                     thread.get( 'messages' ).forEach( refresh );
                 } else {
-                    message = store.getRecord( Message, '#' + messageSK );
+                    message = store.getRecordFromStoreKey( messageSK );
                     refresh( message );
                 }
             }
@@ -182,7 +182,7 @@ var MessageList = O.Class({
     fetchSnippets: function () {
         JMAP.mail.callMethod( 'getSearchSnippets', {
             messageIds: this._snippetsNeeded,
-            filter: this.get( 'filter' ),
+            filter: this.get( 'where' ),
             // Not part of the getSearchSnippets call, but needed to identify
             // this list again to give the response to.
             collapseThreads: this.get( 'collapseThreads' )
@@ -193,7 +193,7 @@ var MessageList = O.Class({
 
 JMAP.mail.handle( MessageList, {
     query: function ( query ) {
-        var filter = query.get( 'filter' );
+        var where = query.get( 'where' );
         var sort = query.get( 'sort' );
         var collapseThreads = query.get( 'collapseThreads' );
         var canGetDeltaUpdates = query.get( 'canGetDeltaUpdates' );
@@ -202,12 +202,12 @@ JMAP.mail.handle( MessageList, {
         var hasMadeRequest = false;
 
         if ( canGetDeltaUpdates && state && request.refresh ) {
-            var list = query._list;
-            var length = list.length;
+            var storeKeys = query.getStoreKeys();
+            var length = storeKeys.length;
             var upto = ( length === query.get( 'length' ) ) ?
-                    undefined : list[ length - 1 ];
+                    undefined : storeKeys[ length - 1 ];
             this.callMethod( 'getMessageListUpdates', {
-                filter: filter,
+                filter: where,
                 sort: sort,
                 collapseThreads: collapseThreads,
                 sinceState: state,
@@ -224,7 +224,7 @@ JMAP.mail.handle( MessageList, {
         var get = function ( start, count, anchor, offset, fetchData ) {
             hasMadeRequest = true;
             this.callMethod( 'getMessageList', {
-                filter: filter,
+                filter: where,
                 sort: sort,
                 collapseThreads: collapseThreads,
                 position: start,
@@ -260,17 +260,14 @@ JMAP.mail.handle( MessageList, {
     // ---
 
     messageList: function ( args ) {
+        args.filter = args.filter || null;
+        args.sort = args.sort || null;
+
         var store = this.get( 'store' );
         var query = store.getQuery( getId( args ) );
         var messageToThreadSK, messageIds, threadIds, l;
 
-        args.filter = args.filter || null;
-        args.sort = args.sort || null;
-
-        if ( query &&
-                args.collapseThreads === query.get( 'collapseThreads' ) &&
-                isEqual( args.sort, query.get( 'sort' ) ) &&
-                isEqual( args.filter, query.get( 'filter' ) ) ) {
+        if ( query ) {
             if ( !args.canCalculateUpdates &&
                     args.state !== query.get( 'state' ) ) {
                 query.messageToThreadSK = {};
@@ -295,17 +292,16 @@ JMAP.mail.handle( MessageList, {
     },
 
     messageListUpdates: function ( args ) {
-        var store = this.get( 'store' );
-        var query = store.getQuery( getId( args ) );
-        var messageToThreadSK;
-
         args.filter = args.filter || null;
         args.sort = args.sort || null;
         args.removed = args.removed || [];
         args.added = args.added || [];
 
-        if ( query &&
-                args.collapseThreads === query.get( 'collapseThreads' ) ) {
+        var store = this.get( 'store' );
+        var query = store.getQuery( getId( args ) );
+        var messageToThreadSK;
+
+        if ( query ) {
             messageToThreadSK = query.messageToThreadSK;
             args.upto = args.uptoMessageId;
             args.removed = args.removed.map( function ( obj ) {
@@ -341,8 +337,8 @@ JMAP.mail.handle( MessageList, {
     // ---
 
     searchSnippets: function ( args ) {
-        var store = this.get( 'store' ),
-            query = store.getQuery( getId( args ) );
+        var store = this.get( 'store' );
+        var query = store.getQuery( getId( args ) );
         if ( query ) {
             query.sourceDidFetchSnippets( args.list );
         }
@@ -351,7 +347,7 @@ JMAP.mail.handle( MessageList, {
 
 JMAP.mail.recalculateAllFetchedWindows = function () {
     // Mark all message lists as needing to recheck if window is fetched.
-    this.get( 'store' ).getAllRemoteQueries().forEach( function ( query ) {
+    this.get( 'store' ).getAllQueries().forEach( function ( query ) {
         if ( query instanceof MessageList ) {
             query.recalculateFetchedWindows();
         }

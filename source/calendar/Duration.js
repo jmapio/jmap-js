@@ -9,9 +9,9 @@
 
 ( function ( JMAP ) {
 
-var durationFormat = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/;
+const durationFormat = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/;
 
-var Duration = O.Class({
+const Duration = O.Class({
     init: function ( durationInMS ) {
         this._durationInMS = durationInMS;
     },

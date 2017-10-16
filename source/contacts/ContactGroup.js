@@ -10,13 +10,13 @@
 
 ( function ( JMAP ) {
 
-var Record = O.Record,
+const Record = O.Record,
     attr = Record.attr;
 
-var ValidationError = O.ValidationError;
-var REQUIRED = ValidationError.REQUIRED;
+const ValidationError = O.ValidationError;
+const REQUIRED = ValidationError.REQUIRED;
 
-var ContactGroup = O.Class({
+const ContactGroup = O.Class({
 
     Extends: Record,
 

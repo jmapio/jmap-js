@@ -10,14 +10,14 @@
 
 ( function ( JMAP ) {
 
-var Record = O.Record;
-var attr = Record.attr;
+const Record = O.Record;
+const attr = Record.attr;
 
-var ValidationError = O.ValidationError;
-var REQUIRED        = ValidationError.REQUIRED;
-var TOO_LONG        = ValidationError.TOO_LONG;
+const ValidationError = O.ValidationError;
+const REQUIRED        = ValidationError.REQUIRED;
+const TOO_LONG        = ValidationError.TOO_LONG;
 
-var Mailbox = O.Class({
+const Mailbox = O.Class({
 
     Extends: Record,
 
@@ -39,7 +39,7 @@ var Mailbox = O.Class({
     }),
 
     parent: Record.toOne({
-        Type: Mailbox,
+        // Type: Mailbox,
         key: 'parentId',
         defaultValue: null
     }),
@@ -137,9 +137,9 @@ var Mailbox = O.Class({
             parent = sub ? dest : dest.get( 'parent' ),
             siblings = parent ?
                 parent.get( 'subfolders' ) :
-                this.get( 'store' ).getQuery( 'rootMailboxes', O.LiveQuery, {
+                this.get( 'store' ).getQuery( 'rootMailboxes', O.LocalQuery, {
                     Type: Mailbox,
-                    filter: function ( data ) {
+                    where: function ( data ) {
                         return !data.parentId;
                     },
                     sort: [ 'sortOrder', 'name' ]

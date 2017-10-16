@@ -10,7 +10,7 @@
 
 ( function ( JMAP ) {
 
-var LocalFile = O.Class({
+const LocalFile = O.Class({
 
     Extends: O.Object,
 

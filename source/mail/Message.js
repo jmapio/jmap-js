@@ -10,18 +10,18 @@
 
 ( function ( JMAP, undefined ) {
 
-var clone = O.clone;
-var Status = O.Status;
-var EMPTY = Status.EMPTY;
-var READY = Status.READY;
-var LOADING = Status.LOADING;
-var NEW = Status.NEW;
-var Record = O.Record;
-var attr = Record.attr;
+const clone = O.clone;
+const Status = O.Status;
+const EMPTY = Status.EMPTY;
+const READY = Status.READY;
+const LOADING = Status.LOADING;
+const NEW = Status.NEW;
+const Record = O.Record;
+const attr = Record.attr;
 
 // ---
 
-var keywordProperty = function ( keyword ) {
+const keywordProperty = function ( keyword ) {
     return function ( value ) {
         if ( value !== undefined ) {
             this.setKeyword( keyword, value );
@@ -32,9 +32,9 @@ var keywordProperty = function ( keyword ) {
     }.property( 'keywords' );
 };
 
-var MessageDetails = O.Class({ Extends: Record });
+const MessageDetails = O.Class({ Extends: Record });
 
-var Message = O.Class({
+const Message = O.Class({
 
     Extends: Record,
 

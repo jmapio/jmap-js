@@ -9,7 +9,7 @@
 
 ( function ( JMAP ) {
 
-var AmbiguousDate = O.Class({
+const AmbiguousDate = O.Class({
 
     init: function ( day, month, year ) {
         this.day = day || 0;

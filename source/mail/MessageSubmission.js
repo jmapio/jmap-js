@@ -10,17 +10,17 @@
 
 ( function ( JMAP ) {
 
-var Record = O.Record;
-var attr = Record.attr;
+const Record = O.Record;
+const attr = Record.attr;
 
-var Identity = JMAP.Identity;
-var Message = JMAP.Message;
-var Thread = JMAP.Thread;
-var makeSetRequest = JMAP.Connection.makeSetRequest;
+const Identity = JMAP.Identity;
+const Message = JMAP.Message;
+const Thread = JMAP.Thread;
+const makeSetRequest = JMAP.Connection.makeSetRequest;
 
 // ---
 
-var MessageSubmission = O.Class({
+const MessageSubmission = O.Class({
 
     Extends: Record,
 

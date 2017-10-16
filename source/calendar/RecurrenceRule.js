@@ -11,26 +11,26 @@
 
 // --- Filtering ---
 
-var none = 1 << 15;
+const none = 1 << 15;
 
-var getMonth = function ( date, results ) {
+const getMonth = function ( date, results ) {
     results[0] = date.getUTCMonth();
     results[1] = none;
     results[2] = none;
 };
-var getDate = function ( date, results, total ) {
+const getDate = function ( date, results, total ) {
     var daysInMonth = total || Date.getDaysInMonth(
             date.getUTCMonth(), date.getUTCFullYear() ) + 1;
     results[0] = date.getUTCDate();
     results[1] = results[0] - daysInMonth;
     results[2] = none;
 };
-var getDay = function ( date, results ) {
+const getDay = function ( date, results ) {
     results[0] = date.getUTCDay();
     results[1] = none;
     results[2] = none;
 };
-var getDayMonthly = function ( date, results, total ) {
+const getDayMonthly = function ( date, results, total ) {
     var day = date.getUTCDay(),
         monthDate = date.getUTCDate(),
         occurrence = Math.floor( ( monthDate - 1 ) / 7 ) + 1,
@@ -42,7 +42,7 @@ var getDayMonthly = function ( date, results, total ) {
     results[1] = day + ( 7 * occurrence );
     results[2] = day + ( 7 * ( occurrence - occurrencesInMonth - 1 ) );
 };
-var getDayYearly = function ( date, results, daysInYear ) {
+const getDayYearly = function ( date, results, daysInYear ) {
     var day = date.getUTCDay(),
         dayOfYear = date.getDayOfYear( true ),
         occurrence = Math.floor( ( dayOfYear - 1 ) / 7 ) + 1,
@@ -52,23 +52,23 @@ var getDayYearly = function ( date, results, daysInYear ) {
     results[1] = day + ( 7 * occurrence );
     results[2] = day + ( 7 * ( occurrence - occurrencesInYear - 1 ) );
 };
-var getYearDay = function ( date, results, total ) {
+const getYearDay = function ( date, results, total ) {
     results[0] = date.getDayOfYear( true );
     results[1] = results[0] - total;
     results[2] = none;
 };
-var getWeekNo = function ( firstDayOfWeek, date, results, total ) {
+const getWeekNo = function ( firstDayOfWeek, date, results, total ) {
     results[0] = date.getISOWeekNumber( firstDayOfWeek, true );
     results[1] = results[0] - total;
     results[2] = none;
 };
-var getPosition = function ( date, results, total, index ) {
+const getPosition = function ( date, results, total, index ) {
     results[0] = index + 1;
     results[1] = index - total;
     results[2] = none;
 };
 
-var filter = function ( array, getValues, allowedValues, total ) {
+const filter = function ( array, getValues, allowedValues, total ) {
     var l = array.length,
         results = [ none, none, none ],
         date, i, ll, a, b, c, allowed;
@@ -90,7 +90,7 @@ var filter = function ( array, getValues, allowedValues, total ) {
         }
     }
 };
-var expand = function ( array, property, values ) {
+const expand = function ( array, property, values ) {
     var l = array.length, ll = values.length,
         i, j, k = 0,
         results = new Array( l * ll ),
@@ -111,19 +111,19 @@ var expand = function ( array, property, values ) {
     return results;
 };
 
-var toBoolean = O.Transform.toBoolean;
+const toBoolean = O.Transform.toBoolean;
 
 // ---
 
-var YEARLY = 1;
-var MONTHLY = 2;
-var WEEKLY = 3;
-var DAILY = 4;
-var HOURLY = 5;
-var MINUTELY = 6;
-var SECONDLY = 7;
+const YEARLY = 1;
+const MONTHLY = 2;
+const WEEKLY = 3;
+const DAILY = 4;
+const HOURLY = 5;
+const MINUTELY = 6;
+const SECONDLY = 7;
 
-var frequencyNumbers = {
+const frequencyNumbers = {
     yearly: YEARLY,
     monthly: MONTHLY,
     weekly: WEEKLY,
@@ -133,7 +133,7 @@ var frequencyNumbers = {
     secondly: SECONDLY
 };
 
-var dayToNumber = {
+const dayToNumber = {
     su: 0,
     mo: 1,
     tu: 2,
@@ -143,7 +143,7 @@ var dayToNumber = {
     sa: 6
 };
 
-var numberToDay = [
+const numberToDay = [
     'su',
     'mo',
     'tu',
@@ -155,7 +155,7 @@ var numberToDay = [
 
 // ---
 
-var RecurrenceRule = O.Class({
+const RecurrenceRule = O.Class({
 
     init: function ( json ) {
         this.frequency = frequencyNumbers[ json.frequency ] || DAILY;

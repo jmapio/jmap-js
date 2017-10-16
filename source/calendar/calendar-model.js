@@ -10,13 +10,13 @@
 
 ( function ( JMAP ) {
 
-var store = JMAP.store;
-var Calendar = JMAP.Calendar;
-var CalendarEvent = JMAP.CalendarEvent;
+const store = JMAP.store;
+const Calendar = JMAP.Calendar;
+const CalendarEvent = JMAP.CalendarEvent;
 
 // ---
 
-var nonRepeatingEvents = new O.Object({
+const nonRepeatingEvents = new O.Object({
 
     index: null,
 
@@ -57,7 +57,7 @@ var nonRepeatingEvents = new O.Object({
     }
 });
 
-var repeatingEvents = new O.Object({
+const repeatingEvents = new O.Object({
 
     start: null,
     end: null,
@@ -135,9 +135,9 @@ var repeatingEvents = new O.Object({
 
     date     - {Date} The date.
 */
-var NO_EVENTS = [];
-var eventSources = [ nonRepeatingEvents, repeatingEvents ];
-var sortByStartInTimeZone = function ( timeZone ) {
+const NO_EVENTS = [];
+const eventSources = [ nonRepeatingEvents, repeatingEvents ];
+const sortByStartInTimeZone = function ( timeZone ) {
     return function ( a, b ) {
         var aStart = a.getStartInTimeZone( timeZone ),
             bStart = b.getStartInTimeZone( timeZone );
@@ -145,7 +145,7 @@ var sortByStartInTimeZone = function ( timeZone ) {
     };
 };
 
-var getEventsForDate = function ( date, timeZone, allDay ) {
+const getEventsForDate = function ( date, timeZone, allDay ) {
     var l = eventSources.length;
     var i, results, events, showDeclined;
     for ( i = 0; i < l; i += 1 ) {
@@ -174,9 +174,9 @@ var getEventsForDate = function ( date, timeZone, allDay ) {
 
 // ---
 
-var eventsLists = [];
+const eventsLists = [];
 
-var EventsList = O.Class({
+const EventsList = O.Class({
 
     Extends: O.ObservableArray,
 
@@ -203,13 +203,13 @@ var EventsList = O.Class({
 
 // ---
 
-var toUTCDay = function ( date ) {
+const toUTCDay = function ( date ) {
     return new Date( date - ( date % ( 24 * 60 * 60 * 1000 ) ) );
 };
 
-var twelveWeeks = 12 * 7 * 24 * 60 * 60 * 1000;
-var now = new Date();
-var usedTimeZones = {};
+const twelveWeeks = 12 * 7 * 24 * 60 * 60 * 1000;
+const now = new Date();
+const usedTimeZones = {};
 var editStore;
 
 Object.assign( JMAP.calendar, {

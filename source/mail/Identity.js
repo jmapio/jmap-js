@@ -10,12 +10,12 @@
 
 ( function ( JMAP ) {
 
-var Record = O.Record;
-var attr = Record.attr;
+const Record = O.Record;
+const attr = Record.attr;
 
 // ---
 
-var Identity = O.Class({
+const Identity = O.Class({
 
     Extends: Record,
 

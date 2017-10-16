@@ -9,7 +9,7 @@
 
 ( function ( JMAP ) {
 
-var InfiniteDateSource = O.Class({
+const InfiniteDateSource = O.Class({
 
     Extends: O.ObservableArray,
 

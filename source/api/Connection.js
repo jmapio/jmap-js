@@ -10,7 +10,7 @@
 
 ( function ( JMAP ) {
 
-var delta = function ( update ) {
+const delta = function ( update ) {
     var records = update.records,
         changes = update.changes,
         i, l = records.length,
@@ -22,11 +22,11 @@ var delta = function ( update ) {
     return delta;
 };
 
-var toPrimaryKey = function ( primaryKey, record ) {
+const toPrimaryKey = function ( primaryKey, record ) {
     return record[ primaryKey ];
 };
 
-var makeSetRequest = function ( change ) {
+const makeSetRequest = function ( change ) {
     var create = change.create;
     var update = change.update;
     var destroy = change.destroy;
@@ -41,7 +41,7 @@ var makeSetRequest = function ( change ) {
     };
 };
 
-var handleProps = {
+const handleProps = {
     precedence: 'commitPrecedence',
     fetch: 'recordFetchers',
     refresh: 'recordRefreshers',
@@ -81,7 +81,7 @@ var handleProps = {
     The response is expected to be in the same format, with methods from
     <JMAP.Connection#response> available to the server to call.
 */
-var Connection = O.Class({
+const Connection = O.Class({
 
     Extends: O.Source,
 
@@ -101,7 +101,7 @@ var Connection = O.Class({
         // List of callback functions to be executed after the next request.
         this._callbackQueue = [];
 
-        // Map of id -> RemoteQuery for all queries to be fetched.
+        // Map of id -> O.Query for all queries to be fetched.
         this._queriesToFetch = {};
         // Map of guid( Type ) -> state
         this._typesToRefresh = {};
@@ -751,7 +751,7 @@ var Connection = O.Class({
         Fetches the data for a remote query from the source.
 
         Parameters:
-            query - {O.RemoteQuery} The query to fetch.
+            query - {O.Query} The query to fetch.
 
         Returns:
             {Boolean} Returns true if the source handled the fetch.

@@ -10,11 +10,11 @@
 
 ( function ( JMAP, undefined ) {
 
-var CalendarEvent = JMAP.CalendarEvent;
+const CalendarEvent = JMAP.CalendarEvent;
 
 // ---
 
-var mayPatch = {
+const mayPatch = {
     links: true,
     translations: true,
     locations: true,
@@ -22,7 +22,7 @@ var mayPatch = {
     alerts: true
 };
 
-var makePatches = function ( path, patches, original, current ) {
+const makePatches = function ( path, patches, original, current ) {
     var key;
     if ( original && current && typeof current === 'object' &&
             !( current instanceof Array ) ) {
@@ -51,7 +51,7 @@ var makePatches = function ( path, patches, original, current ) {
     return patches;
 };
 
-var applyPatch = function ( object, path, patch ) {
+const applyPatch = function ( object, path, patch ) {
     var slash, key;
     while ( true ) {
         // Invalid patch; path does not exist
@@ -79,7 +79,7 @@ var applyPatch = function ( object, path, patch ) {
     }
 };
 
-var proxyOverrideAttibute = function ( Type, key ) {
+const proxyOverrideAttibute = function ( Type, key ) {
     return function ( value ) {
         var original = this.get( 'original' );
         var originalValue = this.getOriginalForKey( key );
@@ -158,11 +158,11 @@ var proxyOverrideAttibute = function ( Type, key ) {
     }.property( 'overrides', 'original.' + key );
 };
 
-var proxyAttribute = function ( _, key ) {
+const proxyAttribute = function ( _, key ) {
     return this.get( 'original' ).get( key );
 }.property().nocache();
 
-var CalendarEventOccurrence = O.Class({
+const CalendarEventOccurrence = O.Class({
 
     Extends: O.Object,
 

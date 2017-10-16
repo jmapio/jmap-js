@@ -10,16 +10,16 @@
 
 ( function ( JMAP ) {
 
-var store = JMAP.store;
-var Mailbox = JMAP.Mailbox;
-var Thread = JMAP.Thread;
-var Message = JMAP.Message;
-var MessageList = JMAP.MessageList;
-var MessageSubmission = JMAP.MessageSubmission;
+const store = JMAP.store;
+const Mailbox = JMAP.Mailbox;
+const Thread = JMAP.Thread;
+const Message = JMAP.Message;
+const MessageList = JMAP.MessageList;
+const MessageSubmission = JMAP.MessageSubmission;
 
 // --- Preemptive mailbox count updates ---
 
-var getMailboxDelta = function ( deltas, mailboxId ) {
+const getMailboxDelta = function ( deltas, mailboxId ) {
     return deltas[ mailboxId ] || ( deltas[ mailboxId ] = {
         totalMessages: 0,
         unreadMessages: 0,
@@ -30,7 +30,7 @@ var getMailboxDelta = function ( deltas, mailboxId ) {
     });
 };
 
-var updateMailboxCounts = function ( mailboxDeltas ) {
+const updateMailboxCounts = function ( mailboxDeltas ) {
     var mailboxId, delta, mailbox;
     for ( mailboxId in mailboxDeltas ) {
         delta = mailboxDeltas[ mailboxId ];
@@ -51,13 +51,13 @@ var updateMailboxCounts = function ( mailboxDeltas ) {
         // first, so if another fetch is already in progress, the
         // results of that are discarded and it is fetched again.
         mailbox.setObsolete()
-               .refresh();
+               .fetch();
     }
 };
 
 // --- Preemptive query updates ---
 
-var filterHasKeyword = function ( filter, keyword ) {
+const filterHasKeyword = function ( filter, keyword ) {
     return (
         keyword === filter.allInThreadHaveKeyword ||
         keyword === filter.someInThreadHaveKeyword ||
@@ -67,7 +67,7 @@ var filterHasKeyword = function ( filter, keyword ) {
     );
 };
 
-var isSortedOnUnread = function ( sort ) {
+const isSortedOnUnread = function ( sort ) {
     for ( var i = 0, l = sort.length; i < l; i += 1 ) {
         if ( /:$Seen /.test( sort[i] ) ) {
             return true;
@@ -75,13 +75,13 @@ var isSortedOnUnread = function ( sort ) {
     }
     return false;
 };
-var isFilteredOnUnread = function ( filter ) {
+const isFilteredOnUnread = function ( filter ) {
     if ( filter.operator ) {
         return filter.conditions.some( isFilteredOnUnread );
     }
     return filterHasKeyword( filter, '$Seen' );
 };
-var isSortedOnFlagged = function ( sort ) {
+const isSortedOnFlagged = function ( sort ) {
     for ( var i = 0, l = sort.length; i < l; i += 1 ) {
         if ( /:$Flagged /.test( sort[i] ) ) {
             return true;
@@ -89,19 +89,19 @@ var isSortedOnFlagged = function ( sort ) {
     }
     return false;
 };
-var isFilteredOnFlagged = function ( filter ) {
+const isFilteredOnFlagged = function ( filter ) {
     if ( filter.operator ) {
         return filter.conditions.some( isFilteredOnFlagged );
     }
     return filterHasKeyword( filter, '$Flagged' );
 };
-var isFilteredOnMailboxes = function ( filter ) {
+const isFilteredOnMailboxes = function ( filter ) {
     if ( filter.operator ) {
         return filter.conditions.some( isFilteredOnMailboxes );
     }
     return ( 'inMailbox' in filter ) || ( 'inMailboxOtherThan' in filter );
 };
-var isFilteredJustOnMailbox = function ( filter ) {
+const isFilteredJustOnMailbox = function ( filter ) {
     var isJustMailboxes = false;
     var term;
     for ( term in filter ) {
@@ -114,19 +114,19 @@ var isFilteredJustOnMailbox = function ( filter ) {
     }
     return isJustMailboxes;
 };
-var isTrue = function () {
+const isTrue = function () {
     return true;
 };
-var isFalse = function () {
+const isFalse = function () {
     return false;
 };
 
 // ---
 
-var READY = O.Status.READY;
+const READY = O.Status.READY;
 
-var reOrFwd = /^(?:(?:re|fwd):\s*)+/;
-var comparators = {
+const reOrFwd = /^(?:(?:re|fwd):\s*)+/;
+const comparators = {
     id: function ( a, b ) {
         var aId = a.get( 'id' );
         var bId = b.get( 'id' );
@@ -171,9 +171,9 @@ var comparators = {
     }
 };
 
-var compareToStoreKey = function ( fields, storeKey, message ) {
+const compareToStoreKey = function ( fields, storeKey, message ) {
     var otherMessage = storeKey && ( store.getStatus( storeKey ) & READY ) ?
-            store.getRecord( Message, '#' + storeKey ) : null;
+            store.getRecordFromStoreKey( storeKey ) : null;
     var i, l, comparator, result;
     if ( !otherMessage ) {
         return 1;
@@ -187,7 +187,7 @@ var compareToStoreKey = function ( fields, storeKey, message ) {
     return 0;
 };
 
-var compareToMessage = function ( fields, aData, bData ) {
+const compareToMessage = function ( fields, aData, bData ) {
     var a = aData.message;
     var b = bData.message;
     var i, l, comparator, result;
@@ -200,15 +200,15 @@ var compareToMessage = function ( fields, aData, bData ) {
     return 0;
 };
 
-var splitDirection = function ( field ) {
+const splitDirection = function ( field ) {
     var space = field.indexOf( ' ' );
     var prop = space ? field.slice( 0, space ) : field;
     var dir = space && field.slice( space + 1 ) === 'asc' ? 1 : -1;
     return [ prop, dir ];
 };
 
-var calculatePreemptiveAdd = function ( query, addedMessages ) {
-    var storeKeyList = query._list;
+const calculatePreemptiveAdd = function ( query, addedMessages ) {
+    var storeKeys = query.getStoreKeys();
     var sort = query.get( 'sort' ).map( splitDirection );
     var comparator = compareToStoreKey.bind( null, sort );
     var added = addedMessages.reduce( function ( added, message ) {
@@ -216,7 +216,7 @@ var calculatePreemptiveAdd = function ( query, addedMessages ) {
                 message: message,
                 messageSK: message.get( 'storeKey' ),
                 threadSK: message.get( 'thread' ).get( 'storeKey' ),
-                index: storeKeyList.binarySearch( message, comparator )
+                index: storeKeys.binarySearch( message, comparator )
             });
             return added;
         }, [] );
@@ -224,7 +224,7 @@ var calculatePreemptiveAdd = function ( query, addedMessages ) {
     var collapseThreads = query.get( 'collapseThreads' );
     var messageToThreadSK = query.get( 'messageToThreadSK' );
     var threadToMessageSK = collapseThreads && added.length ?
-            storeKeyList.reduce( function ( map, messageSK ) {
+            storeKeys.reduce( function ( map, messageSK ) {
                 if ( messageSK ) {
                     map[ messageToThreadSK[ messageSK ] ] = messageSK;
                 }
@@ -246,17 +246,17 @@ var calculatePreemptiveAdd = function ( query, addedMessages ) {
     }, [] ) : null;
 };
 
-var updateQueries = function ( filterTest, sortTest, deltas ) {
+const updateQueries = function ( filterTest, sortTest, deltas ) {
     // Set as obsolete any message list that is filtered by
     // one of the removed or added mailboxes. If it's a simple query,
     // pre-emptively update it.
-    var queries = store.getAllRemoteQueries();
+    var queries = store.getAllQueries();
     var l = queries.length;
     var query, filter, sort, delta;
     while ( l-- ) {
         query = queries[l];
         if ( query instanceof MessageList ) {
-            filter = query.get( 'filter' );
+            filter = query.get( 'where' );
             sort = query.get( 'sort' );
             if ( deltas && isFilteredJustOnMailbox( filter ) ) {
                 delta = deltas[ filter.inMailbox ];
@@ -275,9 +275,9 @@ var updateQueries = function ( filterTest, sortTest, deltas ) {
 
 // ---
 
-var identity = function ( v ) { return v; };
+const identity = function ( v ) { return v; };
 
-var addMoveInverse = function ( inverse, undoManager, willAdd, willRemove, messageSK ) {
+const addMoveInverse = function ( inverse, undoManager, willAdd, willRemove, messageSK ) {
     var l = willRemove ? willRemove.length : 1;
     var i, addMailboxId, removeMailboxId, data;
     for ( i = 0; i < l; i += 1 ) {
@@ -305,13 +305,13 @@ var addMoveInverse = function ( inverse, undoManager, willAdd, willRemove, messa
 
 // ---
 
-var NO = 0;
-var TO_MAILBOX = 1;
-var TO_THREAD_IN_NOT_TRASH = 2;
-var TO_THREAD_IN_TRASH = 4;
-var TO_THREAD = (TO_THREAD_IN_NOT_TRASH|TO_THREAD_IN_TRASH);
+const NO = 0;
+const TO_MAILBOX = 1;
+const TO_THREAD_IN_NOT_TRASH = 2;
+const TO_THREAD_IN_TRASH = 4;
+const TO_THREAD = (TO_THREAD_IN_NOT_TRASH|TO_THREAD_IN_TRASH);
 
-var getMessages = function getMessages ( messageSKs, expand, mailbox, messageToThreadSK, callback, hasDoneLoad ) {
+const getMessages = function getMessages ( messageSKs, expand, mailbox, messageToThreadSK, callback, hasDoneLoad ) {
     // Map to threads, then make sure all threads, including headers
     // are loaded
     var allLoaded = true;
@@ -339,11 +339,11 @@ var getMessages = function getMessages ( messageSKs, expand, mailbox, messageToT
     };
 
     messageSKs.forEach( function ( messageSK ) {
-        var message = store.getRecord( Message, '#' + messageSK );
+        var message = store.getRecordFromStoreKey( messageSK );
         var threadSK = messageToThreadSK[ messageSK ];
         var thread;
         if ( expand && threadSK ) {
-            thread = store.getRecord( Thread, '#' + threadSK );
+            thread = store.getRecordFromStoreKey( threadSK );
             if ( thread.is( READY ) ) {
                 thread.get( 'messages' ).forEach( checkMessage );
             } else {
@@ -371,7 +371,7 @@ var getMessages = function getMessages ( messageSKs, expand, mailbox, messageToT
 
 // ---
 
-var doUndoAction = function ( method, args ) {
+const doUndoAction = function ( method, args ) {
     return function ( callback, messages ) {
         var mail = JMAP.mail;
         if ( messages ) {
@@ -384,7 +384,7 @@ var doUndoAction = function ( method, args ) {
 
 // ---
 
-var roleIndex = new O.Object({
+const roleIndex = new O.Object({
     index: null,
     clearIndex: function () {
         this.index = null;
@@ -433,9 +433,9 @@ Object.assign( JMAP.mail, {
             // This is really needed to check for disappearing Messages/Threads,
             // but more efficient to run it here.
             afterCleanup: function () {
-                var queries = store.getAllRemoteQueries(),
-                    l = queries.length,
-                    query;
+                var queries = store.getAllQueries();
+                var l = queries.length;
+                var query;
                 while ( l-- ) {
                     query = queries[l];
                     if ( query instanceof MessageList ) {
@@ -888,7 +888,7 @@ Object.assign( JMAP.mail, {
             if ( thread ) {
                 // Preemptively update the thread
                 thread.get( 'messages' ).remove( message );
-                thread.refresh();
+                thread.fetch();
 
                 // Calculate any changes to the mailbox message counts
                 isThreadUnreadInNotTrash = thread.get( 'isUnreadInNotTrash' );
@@ -1040,7 +1040,7 @@ Object.assign( JMAP.mail, {
                 i = l;
             }
             messages.replaceObjectsAt( i, 0, [ message ] );
-            thread.refresh();
+            thread.fetch();
 
             // Calculate any changes to the mailbox message counts
             isThreadUnreadInNotTrash = thread.get( 'isUnreadInNotTrash' );
