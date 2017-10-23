@@ -10,6 +10,7 @@
 
 ( function ( JMAP, undefined ) {
 
+const makePatches = JMAP.Connection.makePatches;
 const CalendarEvent = JMAP.CalendarEvent;
 
 // ---
@@ -20,35 +21,6 @@ const mayPatch = {
     locations: true,
     participants: true,
     alerts: true
-};
-
-const makePatches = function ( path, patches, original, current ) {
-    var key;
-    if ( original && current && typeof current === 'object' &&
-            !( current instanceof Array ) ) {
-        for ( key in current ) {
-            makePatches(
-                path + '/' + key.replace( /~/g, '~0' ).replace( /\//g, '~1' ),
-                patches,
-                original[ key ],
-                current[ key ]
-            );
-        }
-        for ( key in original ) {
-            if ( !( key in current ) ) {
-                makePatches(
-                    path + '/' +
-                        key.replace( /~/g, '~0' ).replace( /\//g, '~1' ),
-                    patches,
-                    original[ key ],
-                    null
-                );
-            }
-        }
-    } else if ( !O.isEqual( original, current ) ) {
-        patches.push([ path, current || null ]);
-    }
-    return patches;
 };
 
 const applyPatch = function ( object, path, patch ) {
@@ -85,7 +57,7 @@ const proxyOverrideAttibute = function ( Type, key ) {
         var originalValue = this.getOriginalForKey( key );
         var id = this.id;
         var recurrenceOverrides, recurrenceRule;
-        var overrides, keepOverride, path, patches;
+        var overrides, keepOverride, path;
 
         if ( value !== undefined ) {
             // Get current overrides for occurrence
@@ -105,13 +77,9 @@ const proxyOverrideAttibute = function ( Type, key ) {
             }
             // Set if different to parent
             if ( mayPatch[ key ] ) {
-                patches = makePatches( key, [], originalValue, value );
-                if ( patches.length ) {
-                    keepOverride = true;
-                    patches.forEach( function ( patch ) {
-                        overrides[ patch[0] ] = patch[1];
-                    });
-                }
+                keepOverride =
+                    makePatches( key, overrides, originalValue, value ) ||
+                    keepOverride;
             } else if ( !O.isEqual( originalValue, value ) ) {
                 keepOverride = true;
                 overrides[ key ] = value && value.toJSON ?

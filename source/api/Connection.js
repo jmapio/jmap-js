@@ -10,20 +10,65 @@
 
 ( function ( JMAP ) {
 
-const delta = function ( update ) {
-    var records = update.records,
-        changes = update.changes,
-        i, l = records.length,
-        delta = new Array( l );
+const isEqual = O.isEqual;
+const loc = O.loc;
+const guid = O.guid;
+const Class = O.Class;
+const RunLoop = O.RunLoop;
+const HttpRequest = O.HttpRequest;
+const Source = O.Source;
 
-    for ( i = 0; i < l; i += 1 ) {
-        delta[i] = Object.filter( records[i], changes[i] );
+// ---
+
+const makePatches = function ( path, patches, original, current ) {
+    var key;
+    var didPatch = false;
+    if ( original && current &&
+            typeof current === 'object' && !( current instanceof Array ) ) {
+        for ( key in current ) {
+            didPatch = makePatches(
+                path + '/' + key.replace( /~/g, '~0' ).replace( /\//g, '~1' ),
+                patches,
+                original[ key ],
+                current[ key ]
+            ) || didPatch;
+        }
+        for ( key in original ) {
+            if ( !( key in current ) ) {
+                didPatch = makePatches(
+                    path + '/' +
+                        key.replace( /~/g, '~0' ).replace( /\//g, '~1' ),
+                    patches,
+                    original[ key ],
+                    null
+                ) || didPatch;
+            }
+        }
+    } else if ( !isEqual( original, current ) ) {
+        patches[ path ] = current || null;
+        didPatch = true;
     }
-    return delta;
+    return didPatch;
 };
 
-const toPrimaryKey = function ( primaryKey, record ) {
-    return record[ primaryKey ];
+const makeUpdate = function ( records, changes, committed, primaryKey ) {
+    const updates = {};
+    var record, change, previous, patches, i, l, key;
+    for ( i = 0, l = records.length; i < l; i +=1 ) {
+        record = records[i];
+        change = changes[i];
+        previous = committed[i];
+        patches = {};
+
+        for ( key in change ) {
+            if ( change[ key ] ) {
+                makePatches( key, patches, previous[ key ], record[ key ] );
+            }
+        }
+
+        updates[ record[ primaryKey ] ] = patches;
+    }
+    return Object.keys( updates ).length ? updates : null;
 };
 
 const makeSetRequest = function ( change ) {
@@ -32,10 +77,11 @@ const makeSetRequest = function ( change ) {
     var destroy = change.destroy;
     return {
         create: Object.zip( create.storeKeys, create.records ),
-        update: Object.zip(
-            update.records.map(
-                toPrimaryKey.bind( null, change.primaryKey )
-            ), delta( update )
+        update: makeUpdate(
+            update.records,
+            update.changes,
+            update.committed,
+            change.primaryKey
         ),
         destroy: destroy.ids
     };
@@ -81,9 +127,9 @@ const handleProps = {
     The response is expected to be in the same format, with methods from
     <JMAP.Connection#response> available to the server to call.
 */
-const Connection = O.Class({
+const Connection = Class({
 
-    Extends: O.Source,
+    Extends: Source,
 
     /**
         Constructor: JMAP.Connection
@@ -159,7 +205,7 @@ const Connection = O.Class({
         // Check data is in the correct format
         var data = event.data;
         if ( !( data instanceof Array ) ) {
-            O.RunLoop.didError({
+            RunLoop.didError({
                 name: 'JMAP.Connection#ioDidSucceed',
                 message: 'Data from server is not JSON.',
                 details: 'Data:\n' + event.data +
@@ -200,7 +246,7 @@ const Connection = O.Class({
         case 400:
         case 413:
             var response = event.data;
-            O.RunLoop.didError({
+            RunLoop.didError({
                 name: 'JMAP.Connection#ioDidFail',
                 message: 'Bad request made: ' + status,
                 details: 'Request was:\n' +
@@ -231,7 +277,7 @@ const Connection = O.Class({
             break;
         // 500: Internal Server Error
         case 500:
-            alert( O.loc( 'FEEDBACK_SERVER_FAILED' ) );
+            alert( loc( 'FEEDBACK_SERVER_FAILED' ) );
             discardRequest = true;
             break;
         // Presume a connection error. Try again if willRetry is set,
@@ -346,7 +392,7 @@ const Connection = O.Class({
         }
 
         this.set( 'inFlightRequest',
-            new O.HttpRequest({
+            new HttpRequest({
                 nextEventTarget: this,
                 timeout: this.get( 'timeout' ),
                 method: 'POST',
@@ -387,7 +433,7 @@ const Connection = O.Class({
                 try {
                     handler.call( this, response[1], request[0], request[1] );
                 } catch ( error ) {
-                    O.RunLoop.didError( error );
+                    RunLoop.didError( error );
                 }
             }
         }
@@ -406,7 +452,7 @@ const Connection = O.Class({
                     /* jshint ignore:end */
                     callback = callback.bind( null, response, request );
                 }
-                O.RunLoop.queueFn( 'middle', callback );
+                RunLoop.queueFn( 'middle', callback );
             }
         }
     },
@@ -436,7 +482,7 @@ const Connection = O.Class({
         // Query Fetches
         for ( id in _queriesToFetch ) {
             req = _queriesToFetch[ id ];
-            handler = this.queryFetchers[ O.guid( req.constructor ) ];
+            handler = this.queryFetchers[ guid( req.constructor ) ];
             if ( handler ) {
                 handler.call( this, req );
             }
@@ -577,7 +623,7 @@ const Connection = O.Class({
             {Boolean} Returns true if the source handled the fetch.
     */
     fetchRecords: function ( Type, ids, callback, state, _refresh ) {
-        var typeId = O.guid( Type ),
+        var typeId = guid( Type ),
             handler = _refresh ?
                 this.recordRefreshers[ typeId ] :
                 this.recordFetchers[ typeId ];
@@ -650,8 +696,9 @@ const Connection = O.Class({
                     },
                     update: {
                         storeKeys: [ 'sk3', 'sk4', ... ],
-                        records: [{ id: 'id3', attr: val ... }, {...}],
-                        changes: [{ attr: true }, ... ],
+                        records:   [{ id: 'id3', attr: val2 ... }, {...}],
+                        committed:  [{ id: 'id3', attr: val1 ... }, {...}],
+                        changes:   [{ attr: true }, ... ],
                     },
                     destroy: {
                         storeKeys: [ 'sk5', 'sk6' ],
@@ -725,7 +772,11 @@ const Connection = O.Class({
                 handler = this.recordUpdaters[ type ];
                 if ( handler ) {
                     handler.call( this,
-                        update.storeKeys, update.records, update.changes );
+                        update.storeKeys,
+                        update.records,
+                        update.changes,
+                        update.committed
+                    );
                     handledType = true;
                 }
                 handler = this.recordDestroyers[ type ];
@@ -757,7 +808,7 @@ const Connection = O.Class({
             {Boolean} Returns true if the source handled the fetch.
     */
     fetchQuery: function ( query, callback ) {
-        if ( !this.queryFetchers[ O.guid( query.constructor ) ] ) {
+        if ( !this.queryFetchers[ guid( query.constructor ) ] ) {
             return false;
         }
         var id = query.get( 'id' );
@@ -798,7 +849,7 @@ const Connection = O.Class({
             {JMAP.Connection} Returns self.
     */
     handle: function ( Type, handlers ) {
-        var typeId = O.guid( Type );
+        var typeId = guid( Type );
         var action, propName, isResponse, actionHandlers;
         for ( action in handlers ) {
             propName = handleProps[ action ];
@@ -1039,6 +1090,7 @@ const Connection = O.Class({
 });
 
 Connection.makeSetRequest = makeSetRequest;
+Connection.makePatches = makePatches;
 
 JMAP.Connection = Connection;
 
