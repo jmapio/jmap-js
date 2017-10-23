@@ -418,6 +418,38 @@ Object.assign( JMAP.mail, {
 
     // ---
 
+    findMessage: function ( where ) {
+        return new Promise( function ( resolve, reject ) {
+            JMAP.mail.callMethod( 'getMessageList', {
+                filter: where,
+                sort: null,
+                position: 0,
+                limit: 1,
+                fetchMessages: true,
+                fetchMessageProperties: Message.headerProperties,
+            }, function ( response ) {
+                var call = response[0];
+                var method = call[0];
+                var args = call[1];
+                var id;
+                if ( method === 'messageList' ) {
+                    id = args.messageIds[0];
+                    if ( id ) {
+                        resolve( store.getRecord( Message, id ) );
+                    } else {
+                        reject({
+                            type: 'notFound',
+                        });
+                    }
+                } else {
+                    reject( args );
+                }
+            });
+        });
+    },
+
+    // ---
+
     gc: new O.MemoryManager( store, [
         {
             Type: Message,
