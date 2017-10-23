@@ -33,6 +33,7 @@ const keywordProperty = function ( keyword ) {
 };
 
 const MessageDetails = O.Class({ Extends: Record });
+const MessageThread = O.Class({ Extends: Record });
 
 const Message = O.Class({
 
@@ -226,19 +227,49 @@ Message.detailsProperties = [
     'attachedMessages'
 ];
 Message.Details = MessageDetails;
+Message.Thread = MessageThread;
+
+// ---
 
 JMAP.mail.handle( MessageDetails, {
     fetch: function ( ids ) {
         this.callMethod( 'getMessages', {
             ids: ids,
-            properties: Message.detailsProperties
+            properties: Message.detailsProperties,
         });
-    }
+    },
 });
+
+// ---
+
+JMAP.mail.handle( MessageThread, {
+    fetch: function ( ids ) {
+        this.callMethod( 'getMessages', {
+            ids: ids,
+            properties: [ 'threadId' ],
+        });
+        this.callMethod( 'getThreads', {
+            '#ids': {
+                resultOf: this.getPreviousMethodId(),
+                path: '/list/*/threadId',
+            },
+        });
+        this.callMethod( 'getMessages', {
+            '#ids': {
+                resultOf: this.getPreviousMethodId(),
+                path: '/list/*/messageIds',
+            },
+            properties: Message.headerProperties
+        });
+    },
+});
+
+// ---
 
 JMAP.mail.messageUpdateFetchRecords = true;
 JMAP.mail.messageUpdateMaxChanges = 50;
 JMAP.mail.handle( Message, {
+
     precedence: 1,
 
     fetch: function ( ids ) {
@@ -258,14 +289,19 @@ JMAP.mail.handle( Message, {
                 ]
             });
         } else {
-            var messageUpdateFetchRecords = this.messageUpdateFetchRecords;
             this.callMethod( 'getMessageUpdates', {
                 sinceState: state,
                 maxChanges: this.messageUpdateMaxChanges,
-                fetchRecords: messageUpdateFetchRecords,
-                fetchRecordProperties: messageUpdateFetchRecords ?
-                    Message.headerProperties : null
             });
+            if ( this.messageUpdateFetchRecords ) {
+                this.callMethod( 'getMessages', {
+                    '#ids': {
+                        resultOf: this.getPreviousMethodId(),
+                        path: '/changed',
+                    },
+                    properties: Message.headerProperties,
+                });
+            }
         }
     },
 
@@ -273,7 +309,7 @@ JMAP.mail.handle( Message, {
 
     // ---
 
-    messages: function ( args ) {
+    messages: function ( args, _, reqArgs ) {
         var store = this.get( 'store' );
         var list = args.list;
         var updates, l, message, data, headers;
@@ -296,7 +332,7 @@ JMAP.mail.handle( Message, {
 
         if ( !message || message.date ) {
             this.didFetch( Message, args );
-        } else {
+        } else if ( !reqArgs.properties || reqArgs.properties.length > 1 ) {
             updates = args.list.reduce( function ( updates, message ) {
                 updates[ message.id ] = message;
                 return updates;
@@ -304,9 +340,11 @@ JMAP.mail.handle( Message, {
             store.sourceDidFetchPartialRecords( Message, updates );
         }
     },
-    messageUpdates: function ( args, _, reqArgs ) {
-        this.didFetchUpdates( Message, args, reqArgs );
-        if ( !reqArgs.fetchRecords ) {
+
+    messageUpdates: function ( args ) {
+        const hasDataForChanged = this.messageUpdateFetchRecords;
+        this.didFetchUpdates( Message, args, hasDataForChanged );
+        if ( !hasDataForChanged ) {
             this.recalculateAllFetchedWindows();
         }
         if ( args.hasMoreUpdates ) {
@@ -332,6 +370,7 @@ JMAP.mail.handle( Message, {
         this.messageUpdateFetchRecords = true;
         this.messageUpdateMaxChanges = 50;
     },
+
     error_getMessageUpdates_cannotCalculateChanges: function ( /* args */ ) {
         var store = this.get( 'store' );
         // All our data may be wrong. Mark all messages as obsolete.
@@ -344,11 +383,11 @@ JMAP.mail.handle( Message, {
         // Tell the store we're now in the new state.
         store.sourceDidFetchUpdates(
             Message, null, null, store.getTypeState( Message ), '' );
-
     },
+
     messagesSet: function ( args ) {
         this.didCommit( Message, args );
-    }
+    },
 });
 
 JMAP.Message = Message;

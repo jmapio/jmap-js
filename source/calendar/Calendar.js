@@ -119,27 +119,56 @@ const Calendar = O.Class({
 });
 
 JMAP.calendar.handle( Calendar, {
+
     precedence: 1,
-    fetch: 'getCalendars',
-    refresh: function ( _, state ) {
-        this.callMethod( 'getCalendarUpdates', {
-            sinceState: state,
-            fetchRecords: true
+
+    fetch: function ( ids ) {
+        this.callMethod( 'getCalendars', {
+            ids: ids || null,
         });
     },
+
+    refresh: function ( ids, state ) {
+        if ( ids ) {
+            this.callMethod( 'getCalendars', {
+                ids: ids,
+            });
+        } else {
+            this.callMethod( 'getCalendarUpdates', {
+                sinceState: state,
+                maxChanges: 100,
+            });
+            this.callMethod( 'getCalendars', {
+                '#ids': {
+                    resultOf: this.getPreviousMethodId(),
+                    path: '/changed',
+                },
+            });
+        }
+    },
+
     commit: 'setCalendars',
-    // Response handlers
+
+    // ---
+
     calendars: function ( args, reqMethod, reqArgs ) {
-        this.didFetch( Calendar, args,
-            reqMethod === 'getCalendars' && !reqArgs.ids );
+        const isAll = ( reqArgs.ids === null );
+        this.didFetch( Calendar, args, isAll );
     },
-    calendarUpdates: function ( args, _, reqArgs ) {
-        this.didFetchUpdates( Calendar, args, reqArgs );
+
+    calendarUpdates: function ( args ) {
+        const hasDataForChanged = true;
+        this.didFetchUpdates( Calendar, args, hasDataForChanged );
+        if ( args.hasMoreUpdates ) {
+            this.get( 'store' ).fetchAll( Calendar, true );
+        }
     },
+
     error_getCalendarUpdates_cannotCalculateChanges: function () {
         // All our data may be wrong. Refetch everything.
         this.fetchAllRecords( Calendar );
     },
+
     calendarsSet: function ( args ) {
         this.didCommit( Calendar, args );
     }

@@ -240,6 +240,22 @@ Object.assign( JMAP.calendar, {
         return new EventsList( date, allDay );
     },
 
+    fetchEventsInRange: function ( after, before, callback ) {
+        this.callMethod( 'getCalendarEventList', {
+            filter: {
+                after: after.toJSON() + 'Z',
+                before: before.toJSON() + 'Z',
+            },
+        });
+        this.callMethods( 'getCalendarEvents', {
+            '#ids': {
+                resultOf: this.getPreviousMethodId(),
+                path: '/ids',
+            }
+        }, callback );
+        return this;
+    },
+
     loadEvents: function ( date ) {
         var loadingEventsStart = this.loadingEventsStart;
         var loadingEventsEnd = this.loadingEventsEnd;
@@ -247,13 +263,7 @@ Object.assign( JMAP.calendar, {
         if ( loadingEventsStart === loadingEventsEnd ) {
             start = toUTCDay( date ).subtract( 16, 'week' );
             end = toUTCDay( date ).add( 48, 'week' );
-            this.callMethod( 'getCalendarEventList', {
-                filter: {
-                    after: start.toJSON() + 'Z',
-                    before: end.toJSON() + 'Z'
-                },
-                fetchCalendarEvents: true
-            }, function () {
+            this.fetchEventsInRange( start, end, function () {
                 JMAP.calendar
                     .set( 'loadedEventsStart', start )
                     .set( 'loadedEventsEnd', end );
@@ -266,13 +276,7 @@ Object.assign( JMAP.calendar, {
             start = toUTCDay( date < loadingEventsStart ?
                 date : loadingEventsStart
             ).subtract( 24, 'week' );
-            this.callMethod( 'getCalendarEventList', {
-                filter: {
-                    after: start.toJSON() + 'Z',
-                    before: loadingEventsStart.toJSON() + 'Z'
-                },
-                fetchCalendarEvents: true
-            }, function () {
+            this.fetchEventsInRange( start, loadingEventsStart, function () {
                 JMAP.calendar.set( 'loadedEventsStart', start );
             });
             this.set( 'loadingEventsStart', start );
@@ -281,13 +285,7 @@ Object.assign( JMAP.calendar, {
             end = toUTCDay( date > loadingEventsEnd ?
                 date : loadingEventsEnd
             ).add( 24, 'week' );
-            this.callMethod( 'getCalendarEventList', {
-                filter: {
-                    after: loadingEventsEnd.toJSON() + 'Z',
-                    before: end.toJSON() + 'Z'
-                },
-                fetchCalendarEvents: true
-            }, function () {
+            this.fetchEventsInRange( loadingEventsEnd, end, function () {
                 JMAP.calendar.set( 'loadedEventsEnd', end );
             });
             this.set( 'loadingEventsEnd', end );
@@ -308,13 +306,7 @@ Object.assign( JMAP.calendar, {
 
     flushCache: function () {
         this.replaceEvents = true;
-        this.callMethod( 'getCalendarEventList', {
-            filter: {
-                after: this.loadedEventsStart.toJSON() + 'Z',
-                before: this.loadedEventsEnd.toJSON() + 'Z'
-            },
-            fetchCalendarEvents: true
-        });
+        this.fetchEventsInRange( this.loadedEventsStart, this.loadedEventsEnd );
     },
 
     seenTimeZone: function ( timeZone ) {

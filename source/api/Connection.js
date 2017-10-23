@@ -340,6 +340,10 @@ const Connection = Class({
         return this;
     },
 
+    getPreviousMethodId: function () {
+        return ( this._sendQueue.length - 1 ) + '';
+    },
+
     addCallback: function ( callback ) {
         this._callbackQueue.push([ '', callback ]);
         return this;
@@ -975,10 +979,10 @@ const Connection = Class({
     queryFetchers: {},
 
     didFetch: function ( Type, args, isAll ) {
-        var store = this.get( 'store' ),
-            list = args.list,
-            state = args.state,
-            notFound = args.notFound;
+        var store = this.get( 'store' );
+        var list = args.list;
+        var state = args.state;
+        var notFound = args.notFound;
         if ( list ) {
             store.sourceDidFetchRecords( Type, list, state, isAll );
         }
@@ -987,8 +991,7 @@ const Connection = Class({
         }
     },
 
-    didFetchUpdates: function ( Type, args, reqArgs ) {
-        var hasDataForChanged = reqArgs.fetchRecords;
+    didFetchUpdates: function ( Type, args, hasDataForChanged ) {
         this.get( 'store' )
             .sourceDidFetchUpdates( Type,
                 hasDataForChanged ? null : args.changed || null,
@@ -999,9 +1002,9 @@ const Connection = Class({
     },
 
     didCommit: function ( Type, args ) {
-        var store = this.get( 'store' ),
-            toStoreKey = store.getStoreKey.bind( store, Type ),
-            list, object;
+        var store = this.get( 'store' );
+        var toStoreKey = store.getStoreKey.bind( store, Type );
+        var list, object;
 
         if ( ( object = args.created ) && Object.keys( object ).length ) {
             store.sourceDidCommitCreate( object );

@@ -170,39 +170,55 @@ const Thread = O.Class({
 JMAP.mail.threadUpdateFetchRecords = true;
 JMAP.mail.threadUpdateMaxChanges = 30;
 JMAP.mail.handle( Thread, {
+
     fetch: function ( ids ) {
         this.callMethod( 'getThreads', {
             ids: ids,
-            fetchMessages: true,
-            fetchMessageProperties: JMAP.Message.headerProperties
+        });
+        this.callMethod( 'getMessages', {
+            '#ids': {
+                resultOf: this.getPreviousMethodId(),
+                path: '/list/*/messageIds',
+            },
+            properties: JMAP.Message.headerProperties,
         });
     },
+
     refresh: function ( ids, state ) {
         if ( ids ) {
             this.callMethod( 'getThreads', {
                 ids: ids,
-                fetchMessages: false,
-                fetchMessageProperties: null
             });
         } else {
             this.callMethod( 'getThreadUpdates', {
                 sinceState: state,
                 maxChanges: this.threadUpdateMaxChanges,
-                fetchRecords: this.threadUpdateFetchRecords
             });
+            if ( this.threadUpdateFetchRecords ) {
+                this.callMethod( 'getThreads', {
+                    '#ids': {
+                        resultOf: this.getPreviousMethodId(),
+                        path: '/changed',
+                    },
+                });
+            }
         }
     },
-    // Response handler
+
+    //  ---
+
     threads: function ( args ) {
         this.didFetch( Thread, args );
     },
-    threadUpdates: function ( args, _, reqArgs ) {
-        this.didFetchUpdates( Thread, args, reqArgs );
-        if ( !reqArgs.fetchRecords ) {
+
+    threadUpdates: function ( args ) {
+        const hasDataForChanged = this.threadUpdateFetchRecords;
+        this.didFetchUpdates( Thread, args, hasDataForChanged );
+        if ( !hasDataForChanged ) {
             this.recalculateAllFetchedWindows();
         }
         if ( args.hasMoreUpdates ) {
-            var threadUpdateMaxChanges = this.threadUpdateMaxChanges;
+            const threadUpdateMaxChanges = this.threadUpdateMaxChanges;
             if ( threadUpdateMaxChanges < 120 ) {
                 if ( threadUpdateMaxChanges === 30 ) {
                     // Keep fetching updates, just without records
@@ -224,6 +240,7 @@ JMAP.mail.handle( Thread, {
         this.threadUpdateFetchRecords = true;
         this.threadUpdateMaxChanges = 30;
     },
+
     error_getThreadUpdates_cannotCalculateChanges: function (/* args */) {
         var store = this.get( 'store' );
         // All our data may be wrong. Unload if possible, otherwise mark
@@ -237,7 +254,7 @@ JMAP.mail.handle( Thread, {
         // Tell the store we're now in the new state.
         store.sourceDidFetchUpdates(
             Thread, null, null, store.getTypeState( Thread ), '' );
-    }
+    },
 });
 
 JMAP.Thread = Thread;

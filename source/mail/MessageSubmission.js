@@ -97,7 +97,9 @@ MessageSubmission.makeEnvelope = function ( message ) {
 
 
 JMAP.mail.handle( MessageSubmission, {
+
     precedence: 3,
+
     fetch: function ( ids ) {
         this.callMethod( 'getMessageSubmissions', {
             ids: ids || [],
@@ -113,10 +115,16 @@ JMAP.mail.handle( MessageSubmission, {
             this.callMethod( 'getMessageSubmissionUpdates', {
                 sinceState: state,
                 maxChanges: 50,
-                fetchRecords: true,
+            });
+            this.callMethod( 'getMessageSubmissions', {
+                '#ids': {
+                    resultOf: this.getPreviousMethodId(),
+                    path: '/changed',
+                },
             });
         }
     },
+
     commit: function ( change ) {
         var store = this.get( 'store' );
         var args = makeSetRequest( change );
@@ -172,22 +180,24 @@ JMAP.mail.handle( MessageSubmission, {
     messageSubmissions: function ( args ) {
         this.didFetch( MessageSubmission, args );
     },
-    messageSubmissionUpdates: function ( args, _, reqArgs ) {
-        this.didFetchUpdates( MessageSubmission, args, reqArgs );
+
+    messageSubmissionUpdates: function ( args ) {
+        const hasDataForChanged = true;
+        this.didFetchUpdates( MessageSubmission, args, hasDataForChanged );
         if ( args.hasMoreUpdates ) {
             this.get( 'store' ).fetchAll( MessageSubmission, true );
         }
     },
+
     error_getMessageSubmissionUpdates_cannotCalculateChanges: function ( /* args */ ) {
         var store = this.get( 'store' );
         // All our data may be wrong. Unload if possible, otherwise mark
         // obsolete.
-        store.getAll( MessageSubmission ).forEach( function ( thread ) {
-            if ( !store.unloadRecord( thread.get( 'storeKey' ) ) ) {
-                thread.setObsolete();
+        store.getAll( MessageSubmission ).forEach( function ( submission ) {
+            if ( !store.unloadRecord( submission.get( 'storeKey' ) ) ) {
+                submission.setObsolete();
             }
         });
-        this.recalculateAllFetchedWindows();
         // Tell the store we're now in the new state.
         store.sourceDidFetchUpdates(
             MessageSubmission,
@@ -198,15 +208,13 @@ JMAP.mail.handle( MessageSubmission, {
         );
 
     },
+
+    messageSubmissionsSet: function ( args ) {
+        this.didCommit( MessageSubmission, args );
+    },
+
     error_setMessageSubimssions_stateMismatch: function () {
         // TODO: Fire error on all creates, to check and try again.
-    },
-    messageSubmissionsSet: function ( args ) {
-        // TODO: For each created submission:
-        // 1. Fetch referenced message In-Reply-To header
-        // 2. Find message(s) with this Message-Id
-        // 3. Set $Answered keyword on them
-        this.didCommit( MessageSubmission, args );
     },
 });
 

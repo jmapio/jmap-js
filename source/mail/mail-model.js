@@ -10,6 +10,8 @@
 
 ( function ( JMAP ) {
 
+const READY = O.Status.READY;
+
 const store = JMAP.store;
 const Mailbox = JMAP.Mailbox;
 const Thread = JMAP.Thread;
@@ -123,8 +125,6 @@ const isFalse = function () {
 
 // ---
 
-const READY = O.Status.READY;
-
 const reOrFwd = /^(?:(?:re|fwd):\s*)+/;
 const comparators = {
     id: function ( a, b ) {
@@ -207,43 +207,55 @@ const splitDirection = function ( field ) {
     return [ prop, dir ];
 };
 
-const calculatePreemptiveAdd = function ( query, addedMessages ) {
+const calculatePreemptiveAdd = function ( query, addedMessages, replaced ) {
     var storeKeys = query.getStoreKeys();
     var sort = query.get( 'sort' ).map( splitDirection );
     var comparator = compareToStoreKey.bind( null, sort );
-    var added = addedMessages.reduce( function ( added, message ) {
-            added.push({
-                message: message,
-                messageSK: message.get( 'storeKey' ),
-                threadSK: message.get( 'thread' ).get( 'storeKey' ),
-                index: storeKeys.binarySearch( message, comparator )
-            });
-            return added;
-        }, [] );
+    var threadSKToIndex = {};
+    var indexDelta = 0;
+    var added, i, l, messageSK, threadId, threadSK;
 
-    var collapseThreads = query.get( 'collapseThreads' );
-    var messageToThreadSK = query.get( 'messageToThreadSK' );
-    var threadToMessageSK = collapseThreads && added.length ?
-            storeKeys.reduce( function ( map, messageSK ) {
-                if ( messageSK ) {
-                    map[ messageToThreadSK[ messageSK ] ] = messageSK;
-                }
-                return map;
-            }, {} ) :
-            {};
-
+    added = addedMessages.reduce( function ( added, message ) {
+        added.push({
+            message: message,
+            messageSK: message.get( 'storeKey' ),
+            threadSK: message.get( 'thread' ).get( 'storeKey' ),
+            index: storeKeys.binarySearch( message, comparator )
+        });
+        return added;
+    }, [] );
     added.sort( compareToMessage.bind( null, sort ) );
 
-    return added.length ? added.reduce( function ( result, item ) {
-        var messageSK = item.messageSK;
-        var threadSK = item.threadSK;
-        if ( !collapseThreads || !threadToMessageSK[ threadSK ] ) {
-            threadToMessageSK[ threadSK ] = messageSK;
-            messageToThreadSK[ messageSK ] = threadSK;
-            result.push([ item.index + result.length, messageSK ]);
+    if ( !added.length ) {
+        return null;
+    }
+
+    if ( query.get( 'collapseThreads' ) ) {
+        l = Math.min( added.last().index, storeKeys.length );
+        for ( i = 0; i < l; i += 1 ) {
+            messageSK = storeKeys[i];
+            if ( messageSK && ( store.getStatus( messageSK ) & READY ) ) {
+                threadId = store.getRecordFromStoreKey( messageSK )
+                                .get( 'threadId' );
+                threadSK = store.getStoreKey( Thread, threadId );
+                threadSKToIndex[ threadSK ] = i;
+            }
         }
+    }
+
+    return added.reduce( function ( result, item ) {
+        var threadIndex = threadSKToIndex[ item.threadSK ];
+        if ( threadIndex !== undefined ) {
+            if ( threadIndex >= item.index ) {
+                replaced.push( storeKeys[ threadIndex ] );
+            } else {
+                return result;
+            }
+        }
+        result.push([ item.index + indexDelta, messageSK ]);
+        indexDelta += 1;
         return result;
-    }, [] ) : null;
+    }, [] );
 };
 
 const updateQueries = function ( filterTest, sortTest, deltas ) {
@@ -252,7 +264,7 @@ const updateQueries = function ( filterTest, sortTest, deltas ) {
     // pre-emptively update it.
     var queries = store.getAllQueries();
     var l = queries.length;
-    var query, filter, sort, delta;
+    var query, filter, sort, delta, replaced, added;
     while ( l-- ) {
         query = queries[l];
         if ( query instanceof MessageList ) {
@@ -261,10 +273,19 @@ const updateQueries = function ( filterTest, sortTest, deltas ) {
             if ( deltas && isFilteredJustOnMailbox( filter ) ) {
                 delta = deltas[ filter.inMailbox ];
                 if ( delta ) {
+                    replaced = [];
+                    added =
+                        calculatePreemptiveAdd( query, delta.added, replaced );
                     query.clientDidGenerateUpdate({
-                        added: calculatePreemptiveAdd( query, delta.added ),
-                        removed: delta.removed
+                        added: added,
+                        removed: delta.removed,
                     });
+                    if ( replaced.length ) {
+                        query.clientDidGenerateUpdate({
+                            added: null,
+                            removed: replaced,
+                        });
+                    }
                 }
             } else if ( filterTest( filter ) || sortTest( sort ) ) {
                 query.setObsolete();
@@ -311,7 +332,7 @@ const TO_THREAD_IN_NOT_TRASH = 2;
 const TO_THREAD_IN_TRASH = 4;
 const TO_THREAD = (TO_THREAD_IN_NOT_TRASH|TO_THREAD_IN_TRASH);
 
-const getMessages = function getMessages ( messageSKs, expand, mailbox, messageToThreadSK, callback, hasDoneLoad ) {
+const getMessages = function getMessages ( messageSKs, expand, mailbox, callback, hasDoneLoad ) {
     // Map to threads, then make sure all threads, including headers
     // are loaded
     var allLoaded = true;
@@ -339,17 +360,23 @@ const getMessages = function getMessages ( messageSKs, expand, mailbox, messageT
     };
 
     messageSKs.forEach( function ( messageSK ) {
-        var message = store.getRecordFromStoreKey( messageSK );
-        var threadSK = messageToThreadSK[ messageSK ];
-        var thread;
-        if ( expand && threadSK ) {
-            thread = store.getRecordFromStoreKey( threadSK );
-            if ( thread.is( READY ) ) {
-                thread.get( 'messages' ).forEach( checkMessage );
+        var thread, message;
+        if ( expand ) {
+            if ( store.getStatus( messageSK ) & READY ) {
+                thread = store.getRecordFromStoreKey( messageSK )
+                              .get( 'thread' );
+                if ( thread.is( READY ) ) {
+                    thread.get( 'messages' ).forEach( checkMessage );
+                } else {
+                    allLoaded = false;
+                }
             } else {
+                JMAP.mail.fetchRecord( Message.Thread,
+                    store.getIdFromStoreKey( messageSK ) );
                 allLoaded = false;
             }
         } else {
+            message = store.getRecordFromStoreKey( messageSK );
             checkMessage( message );
         }
     });
@@ -363,7 +390,7 @@ const getMessages = function getMessages ( messageSKs, expand, mailbox, messageT
         JMAP.mail.gc.isPaused = true;
         JMAP.mail.addCallback(
             getMessages.bind( null,
-                messageSKs, expand, mailbox, messageToThreadSK, callback, true )
+                messageSKs, expand, mailbox, callback, true )
         );
     }
     return true;
@@ -516,7 +543,7 @@ Object.assign( JMAP.mail, {
                 messageSKs = call.messageSKs;
                 if ( messageSKs ) {
                     sequence.then(
-                        getMessages.bind( null, messageSKs, NO, null, {} ) );
+                        getMessages.bind( null, messageSKs, NO, null ) );
                 }
                 sequence.then( doUndoAction( call.method, call.args ) );
             }

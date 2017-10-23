@@ -146,34 +146,59 @@ const Contact = O.Class({
 });
 
 JMAP.contacts.handle( Contact, {
+
     precedence: 0, // Before ContactGroup
-    fetch: 'getContacts',
-    refresh: function ( _, state ) {
-        this.callMethod( 'getContactUpdates', {
-            sinceState: state,
-            maxChanges: 100,
-            fetchRecords: true
+
+    fetch: function ( ids ) {
+        this.callMethod( 'getContacts', {
+            ids: ids || null,
         });
     },
-    commit: 'setContacts',
-    // Response handlers
-    contacts: function ( args, reqMethod, reqArgs ) {
-        this.didFetch( Contact, args,
-            reqMethod === 'getContacts' && !reqArgs.ids );
+
+    refresh: function ( ids, state ) {
+        if ( ids ) {
+            this.callMethod( 'getContacts', {
+                ids: ids,
+            });
+        } else {
+            this.callMethod( 'getContactUpdates', {
+                sinceState: state,
+                maxChanges: 100,
+            });
+            this.callMethod( 'getContacts', {
+                '#ids': {
+                    resultOf: this.getPreviousMethodId(),
+                    path: '/changed',
+                },
+            });
+        }
     },
-    contactUpdates: function ( args, _, reqArgs ) {
-        this.didFetchUpdates( Contact, args, reqArgs );
+
+    commit: 'setContacts',
+
+    // ---
+
+    contacts: function ( args, reqMethod, reqArgs ) {
+        const isAll = ( reqArgs.ids === null );
+        this.didFetch( Contact, args, isAll );
+    },
+
+    contactUpdates: function ( args ) {
+        const hasDataForChanged = true;
+        this.didFetchUpdates( Contact, args, hasDataForChanged );
         if ( args.hasMoreUpdates ) {
             this.get( 'store' ).fetchAll( Contact, true );
         }
     },
+
     error_getContactUpdates_cannotCalculateChanges: function () {
         // All our data may be wrong. Refetch everything.
         this.fetchAllRecords( Contact );
     },
+
     contactsSet: function ( args ) {
         this.didCommit( Contact, args );
-    }
+    },
 });
 
 JMAP.Contact = Contact;

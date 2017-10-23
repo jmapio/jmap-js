@@ -67,30 +67,56 @@ const ContactGroup = O.Class({
 });
 
 JMAP.contacts.handle( ContactGroup, {
+
     precedence: 1, // After Contact
-    fetch: 'getContactGroups',
-    refresh: function ( _, state ) {
-        this.callMethod( 'getContactGroupUpdates', {
-            sinceState: state,
-            fetchRecords: true
+
+    fetch: function ( ids ) {
+        this.callMethod( 'getContactGroups', {
+            ids: ids || null,
         });
     },
+
+    refresh: function ( ids, state ) {
+        if ( ids ) {
+            this.callMethod( 'getContactGroups', {
+                ids: ids,
+            });
+        } else {
+            this.callMethod( 'getContactGroupUpdates', {
+                sinceState: state,
+                maxChanges: 100,
+            });
+            this.callMethod( 'getContactGroups', {
+                '#ids': {
+                    resultOf: this.getPreviousMethodId(),
+                    path: '/changed',
+                },
+            });
+        }
+    },
+
     commit: 'setContactGroups',
-    // Response handlers
+
+    // ---
+
     contactGroups: function ( args, reqMethod, reqArgs ) {
-        this.didFetch( ContactGroup, args,
-            reqMethod === 'getContactGroups' && !reqArgs.ids );
+        const isAll = ( reqArgs.ids === null );
+        this.didFetch( ContactGroup, args, isAll );
     },
-    contactGroupUpdates: function ( args, _, reqArgs ) {
-        this.didFetchUpdates( ContactGroup, args, reqArgs );
+
+    contactGroupUpdates: function ( args ) {
+        const hasDataForChanged = true;
+        this.didFetchUpdates( ContactGroup, args, hasDataForChanged );
     },
+
     error_getContactGroupUpdates_cannotCalculateChanges: function () {
         // All our data may be wrong. Refetch everything.
         this.fetchAllRecords( ContactGroup );
     },
+
     contactGroupsSet: function ( args ) {
         this.didCommit( ContactGroup, args );
-    }
+    },
 });
 
 JMAP.ContactGroup = ContactGroup;

@@ -665,17 +665,38 @@ const alertOffsetFromJSON = function ( alerts ) {
 
 JMAP.calendar.replaceEvents = false;
 JMAP.calendar.handle( CalendarEvent, {
+
     precedence: 2,
-    fetch: 'getCalendarEvents',
-    refresh: function ( _, state ) {
-        this.callMethod( 'getCalendarEventUpdates', {
-            sinceState: state,
-            maxChanges: 100,
-            fetchRecords: true
+
+    fetch: function ( ids ) {
+        this.callMethod( 'getCalendarEvents', {
+            ids: ids || null,
         });
     },
+
+    refresh: function ( ids, state ) {
+        if ( ids ) {
+            this.callMethod( 'getCalendarEvents', {
+                ids: ids,
+            });
+        } else {
+            this.callMethod( 'getCalendarEventUpdates', {
+                sinceState: state,
+                maxChanges: 100,
+            });
+            this.callMethod( 'getCalendarEvents', {
+                '#ids': {
+                    resultOf: this.getPreviousMethodId(),
+                    path: '/changed',
+                },
+            });
+        }
+    },
+
     commit: 'setCalendarEvents',
-    // Response handlers
+
+    // ---
+
     calendarEvents: function ( args ) {
         var events = args.list;
         var l = events.length;
@@ -693,18 +714,22 @@ JMAP.calendar.handle( CalendarEvent, {
         this.didFetch( CalendarEvent, args, this.replaceEvents );
         this.replaceEvents = false;
     },
-    calendarEventUpdates: function ( args, _, reqArgs ) {
-        this.didFetchUpdates( CalendarEvent, args, reqArgs );
+
+    calendarEventUpdates: function ( args ) {
+        const hasDataForChanged = true;
+        this.didFetchUpdates( CalendarEvent, args, hasDataForChanged );
         if ( args.hasMoreUpdates ) {
             this.get( 'store' ).fetchAll( CalendarEvent, true );
         }
     },
+
     error_getCalendarEventUpdates_cannotCalculateChanges: function () {
         JMAP.calendar.flushCache();
     },
+
     calendarEventsSet: function ( args ) {
         this.didCommit( CalendarEvent, args );
-    }
+    },
 });
 
 JMAP.CalendarEvent = CalendarEvent;

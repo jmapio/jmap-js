@@ -63,16 +63,59 @@ const Identity = O.Class({
 });
 
 JMAP.mail.handle( Identity, {
+
     precedence: 2,
-    fetch: 'getIdentities',
-    commit: 'setIdentities',
-    // Response handlers
-    identities: function ( args ) {
-        this.didFetch( Identity, args, true );
+
+    fetch: function ( ids ) {
+        this.callMethod( 'getIdentities', {
+            ids: ids || null,
+        });
     },
+
+    refresh: function ( ids, state ) {
+        if ( ids ) {
+            this.callMethod( 'getIdentities', {
+                ids: ids,
+            });
+        } else {
+            this.callMethod( 'getIdentityUpdates', {
+                sinceState: state,
+                maxChanges: 100,
+            });
+            this.callMethod( 'getIdentities', {
+                '#ids': {
+                    resultOf: this.getPreviousMethodId(),
+                    path: '/changed',
+                },
+            });
+        }
+    },
+
+    commit: 'setIdentities',
+
+    // ---
+
+    identities: function ( args, reqMethod, reqArgs ) {
+        const isAll = ( reqArgs.ids === null );
+        this.didFetch( Identity, args, isAll );
+    },
+
+    identityUpdates: function ( args ) {
+        const hasDataForChanged = true;
+        this.didFetchUpdates( Identity, args, hasDataForChanged );
+        if ( args.hasMoreUpdates ) {
+            this.get( 'store' ).fetchAll( Identity, true );
+        }
+    },
+
+    error_getIdentityUpdates_cannotCalculateChanges: function () {
+        // All our data may be wrong. Refetch everything.
+        this.fetchAllRecords( Identity );
+    },
+
     identitiesSet: function ( args ) {
         this.didCommit( Identity, args );
-    }
+    },
 });
 
 JMAP.Identity = Identity;

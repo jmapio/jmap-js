@@ -187,42 +187,58 @@ const Mailbox = O.Class({
 Mailbox.prototype.parent.Type = Mailbox;
 
 JMAP.mail.handle( Mailbox, {
+
     precedence: 0,
+
     fetch: function ( ids ) {
         this.callMethod( 'getMailboxes', {
             ids: ids || null,
-            properties: null
         });
     },
+
     refresh: function ( ids, state ) {
         if ( ids ) {
             this.callMethod( 'getMailboxes', {
                 ids: ids,
                 properties: [
                     'totalMessages', 'unreadMessages',
-                    'totalThreads', 'unreadThreads'
-                ]
+                    'totalThreads', 'unreadThreads',
+                ],
             });
         } else {
             this.callMethod( 'getMailboxUpdates', {
                 sinceState: state,
-                fetchRecords: true,
-                fetchRecordProperties: null
+            });
+            this.callMethod( 'getMailboxes', {
+                '#ids': {
+                    resultOf: this.getPreviousMethodId(),
+                    path: '/changed',
+                },
+                '#properties': {
+                    resultOf: this.getPreviousMethodId(),
+                    path: '/changedProperties',
+                },
             });
         }
     },
+
     commit: 'setMailboxes',
 
     // ---
 
-    mailboxes: function ( args, reqMethod, reqArgs ) {
-        var isAll = ( reqMethod === 'getMailboxes' && !reqArgs.ids );
+    mailboxes: function ( args, _, reqArgs ) {
+        const isAll = ( reqArgs.ids === null );
         this.didFetch( Mailbox, args, isAll );
     },
 
-    mailboxUpdates: function ( args, _, reqArgs ) {
-        this.didFetchUpdates( Mailbox, args, reqArgs );
+    mailboxUpdates: function ( args ) {
+        const hasDataForChanged = true;
+        this.didFetchUpdates( Mailbox, args, hasDataForChanged );
+        if ( args.hasMoreUpdates ) {
+            this.get( 'store' ).fetchAll( Mailbox, true );
+        }
     },
+
     error_getMailboxUpdates_cannotCalculateChanges: function () {
         // All our data may be wrong. Refetch everything.
         this.fetchAllRecords( Mailbox );

@@ -12,10 +12,13 @@
 
 const Status = O.Status;
 const EMPTY = Status.EMPTY;
+const READY = Status.READY;
 const OBSOLETE = Status.OBSOLETE;
 
 const Message = JMAP.Message;
 const Thread = JMAP.Thread;
+
+// ---
 
 const isFetched = function ( message ) {
     return !message.is( EMPTY|OBSOLETE );
@@ -65,8 +68,6 @@ const MessageList = O.Class({
         this._snippets = {};
         this._snippetsNeeded = [];
 
-        this.messageToThreadSK = {};
-
         MessageList.parent.constructor.call( this, options );
     },
 
@@ -78,8 +79,7 @@ const MessageList = O.Class({
         var i = index * windowSize;
         var l = Math.min( i + windowSize, this.get( 'length' ) );
         var collapseThreads = this.get( 'collapseThreads' );
-        var messageToThreadSK = this.messageToThreadSK;
-        var messageSK, threadSK, thread;
+        var messageSK, threadId, threadSK, thread;
         for ( ; i < l; i += 1 ) {
             messageSK = storeKeys[i];
             // No message, or out-of-date
@@ -87,9 +87,11 @@ const MessageList = O.Class({
                 return false;
             }
             if ( collapseThreads ) {
-                threadSK = messageToThreadSK[ messageSK ];
+                threadId = store.getRecordFromStoreKey( messageSK )
+                                .get( 'threadId' );
+                threadSK = store.getStoreKey( Thread, threadId );
                 // No thread, or out-of-date
-                if ( store.getStatus( Thread, threadSK ) & (EMPTY|OBSOLETE) ) {
+                if ( store.getStatus( threadSK ) & (EMPTY|OBSOLETE) ) {
                     return false;
                 }
                 thread = store.getRecordFromStoreKey( threadSK );
@@ -107,12 +109,11 @@ const MessageList = O.Class({
         var storeKeys = this.getStoreKeys();
         var length = this.get( 'length' );
         var collapseThreads = this.get( 'collapseThreads' );
-        var messageToThreadSK = this.messageToThreadSK;
 
         req.records = req.records.filter( function ( req ) {
             var i = req.start;
             var l = i + req.count;
-            var message, thread, messageSK, threadSK;
+            var message, thread, messageSK;
 
             if ( length ) {
                 l = Math.min( l, length );
@@ -130,11 +131,16 @@ const MessageList = O.Class({
                 // Fetch the Message objects (if not already fetched).
                 // If already fetched, fetch the updates
                 if ( collapseThreads ) {
-                    threadSK = messageToThreadSK[ messageSK ];
-                    thread = store.getRecordFromStoreKey( threadSK );
-                    // If already fetched, fetch the updates
-                    refresh( thread );
-                    thread.get( 'messages' ).forEach( refresh );
+                    if ( store.getStatus( messageSK ) & READY ) {
+                        thread = store.getRecordFromStoreKey( messageSK )
+                                      .get( 'thread' );
+                        // If already fetched, fetch the updates
+                        refresh( thread );
+                        thread.get( 'messages' ).forEach( refresh );
+                    } else {
+                        JMAP.mail.fetchRecord( Message.Thread,
+                            store.getIdFromStoreKey( messageSK ) );
+                    }
                 } else {
                     message = store.getRecordFromStoreKey( messageSK );
                     refresh( message );
@@ -211,9 +217,9 @@ JMAP.mail.handle( MessageList, {
                 sort: sort,
                 collapseThreads: collapseThreads,
                 sinceState: state,
-                uptoMessageId: upto ?
+                uptoId: upto ?
                     JMAP.store.getIdFromStoreKey( upto ) : null,
-                maxChanges: 250
+                maxChanges: 250,
             });
         }
 
@@ -231,12 +237,32 @@ JMAP.mail.handle( MessageList, {
                 anchor: anchor,
                 anchorOffset: offset,
                 limit: count,
-                fetchThreads: collapseThreads && fetchData,
-                fetchMessages: fetchData,
-                fetchMessageProperties: fetchData ?
-                    JMAP.Message.headerProperties : null,
-                fetchSearchSnippets: false
             });
+            if ( fetchData ) {
+                this.callMethod( 'getMessages', {
+                    '#ids': {
+                        resultOf: this.getPreviousMethodId(),
+                        path: '/ids',
+                    },
+                    properties: collapseThreads ?
+                        [ 'threadId' ] : Message.headerProperties,
+                });
+                if ( collapseThreads ) {
+                    this.callMethod( 'getThreads', {
+                        '#ids': {
+                            resultOf: this.getPreviousMethodId(),
+                            path: '/list/*/threadId',
+                        },
+                    });
+                    this.callMethod( 'getMessages', {
+                        '#ids': {
+                            resultOf: this.getPreviousMethodId(),
+                            path: '/list/*/messageIds',
+                        },
+                        properties: Message.headerProperties
+                    });
+                }
+            }
         }.bind( this );
 
         request.ids.forEach( function ( req ) {
@@ -262,25 +288,12 @@ JMAP.mail.handle( MessageList, {
     messageList: function ( args ) {
         args.filter = args.filter || null;
         args.sort = args.sort || null;
+        args.idList = args.ids;
 
         var store = this.get( 'store' );
         var query = store.getQuery( getId( args ) );
-        var messageToThreadSK, messageIds, threadIds, l;
 
         if ( query ) {
-            if ( !args.canCalculateUpdates &&
-                    args.state !== query.get( 'state' ) ) {
-                query.messageToThreadSK = {};
-            }
-            messageToThreadSK = query.messageToThreadSK;
-            threadIds = args.threadIds;
-            messageIds = args.idList = args.messageIds;
-            l = messageIds.length;
-            while ( l-- ) {
-                messageToThreadSK[
-                    store.getStoreKey( Message, messageIds[l] )
-                ] = store.getStoreKey( Thread, threadIds[l] );
-            }
             query.set( 'canGetDeltaUpdates', args.canCalculateUpdates );
             query.sourceDidFetchIdList( args );
         }
@@ -295,29 +308,15 @@ JMAP.mail.handle( MessageList, {
         args.filter = args.filter || null;
         args.sort = args.sort || null;
         args.removed = args.removed || [];
-        args.added = args.added || [];
+        args.added = args.added ? args.added.map( function ( item ) {
+            return [ item.index, item.id ];
+        }) : [];
+        args.upto = args.uptoId;
 
         var store = this.get( 'store' );
         var query = store.getQuery( getId( args ) );
-        var messageToThreadSK;
 
         if ( query ) {
-            messageToThreadSK = query.messageToThreadSK;
-            args.upto = args.uptoMessageId;
-            args.removed = args.removed.map( function ( obj ) {
-                var messageId = obj.messageId;
-                delete messageToThreadSK[
-                    store.getStoreKey( Message, messageId )
-                ];
-                return messageId;
-            });
-            args.added = args.added.map( function ( obj ) {
-                var messageId = obj.messageId;
-                messageToThreadSK[
-                    store.getStoreKey( Message, messageId )
-                ] = store.getStoreKey( Thread, obj.threadId );
-                return [ obj.index, messageId ];
-            });
             query.sourceDidFetchUpdate( args );
         }
     },
@@ -329,6 +328,7 @@ JMAP.mail.handle( MessageList, {
 
     error_getMessageListUpdates_tooManyChanges: function ( _, __, requestArgs ) {
         var query = this.get( 'store' ).getQuery( getId( requestArgs ) );
+
         if ( query ) {
             query.reset();
         }
@@ -339,6 +339,7 @@ JMAP.mail.handle( MessageList, {
     searchSnippets: function ( args ) {
         var store = this.get( 'store' );
         var query = store.getQuery( getId( args ) );
+
         if ( query ) {
             query.sourceDidFetchSnippets( args.list );
         }
