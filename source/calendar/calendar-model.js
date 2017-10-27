@@ -247,7 +247,7 @@ Object.assign( JMAP.calendar, {
                 before: before.toJSON() + 'Z',
             },
         });
-        this.callMethods( 'getCalendarEvents', {
+        this.callMethod( 'getCalendarEvents', {
             '#ids': {
                 resultOf: this.getPreviousMethodId(),
                 path: '/ids',
