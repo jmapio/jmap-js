@@ -10,6 +10,7 @@
 
 ( function ( JMAP, undefined ) {
 
+const isEqual = O.isEqual;
 const Status = O.Status;
 const EMPTY = Status.EMPTY;
 const READY = Status.READY;
@@ -48,9 +49,10 @@ const stringifySorted = function ( item ) {
 };
 
 const getId = function ( args ) {
-    return 'ml:' + stringifySorted( args.where || args.filter ) + ':' +
-        JSON.stringify( args.sort ) +
-        ( args.collapseThreads ? '+' : '-' );
+    return 'MessageList:' + (
+        stringifySorted( args.where || args.filter ) +
+        JSON.stringify( args.sort )
+    ).hash().toString() + ( args.collapseThreads ? '+' : '-' );
 };
 
 const MessageList = O.Class({
@@ -157,11 +159,9 @@ const MessageList = O.Class({
     // --- Snippets ---
 
     sourceDidFetchSnippets: function ( snippets ) {
-        var store = JMAP.store,
-            Message = JMAP.Message,
-            READY = O.Status.READY,
-            l = snippets.length,
-            snippet, messageId;
+        var store = this.get( 'store' );
+        var l = snippets.length;
+        var snippet, messageId;
         while ( l-- ) {
             snippet = snippets[l];
             messageId = snippet.messageId;
@@ -218,7 +218,7 @@ JMAP.mail.handle( MessageList, {
                 collapseThreads: collapseThreads,
                 sinceState: state,
                 uptoId: upto ?
-                    JMAP.store.getIdFromStoreKey( upto ) : null,
+                    this.get( 'store' ).getIdFromStoreKey( upto ) : null,
                 maxChanges: 250,
             });
         }
@@ -338,12 +338,14 @@ JMAP.mail.handle( MessageList, {
 
     searchSnippets: function ( args ) {
         var store = this.get( 'store' );
-        var query = store.getQuery( getId( args ) );
-
-        if ( query ) {
-            query.sourceDidFetchSnippets( args.list );
-        }
-    }
+        var where = args.filter;
+        var list = args.list;
+        store.getAllQueries().forEach( function ( query ) {
+            if ( isEqual( query.get( 'where' ), where ) ) {
+                query.sourceDidFetchSnippets( list );
+            }
+        });
+    },
 });
 
 JMAP.mail.recalculateAllFetchedWindows = function () {
