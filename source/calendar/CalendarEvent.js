@@ -204,7 +204,7 @@ const CalendarEvent = O.Class({
     start: attr( Date, {
         willSet: function ( propValue, propKey, record ) {
             var oldStart = record.get( 'start' );
-            if ( typeof oldStart !== undefined ) {
+            if ( typeof oldStart !== 'undefined' ) {
                 record._updateRecurrenceOverrides( oldStart, propValue );
             }
             return true;
