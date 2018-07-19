@@ -10,9 +10,12 @@
 
 ( function ( JMAP ) {
 
+const clone = O.clone;
 const READY = O.Status.READY;
 
+const auth = JMAP.auth;
 const store = JMAP.store;
+const connection = JMAP.mail;
 const Mailbox = JMAP.Mailbox;
 const Thread = JMAP.Thread;
 const Message = JMAP.Message;
@@ -21,10 +24,10 @@ const MessageSubmission = JMAP.MessageSubmission;
 
 // --- Preemptive mailbox count updates ---
 
-const getMailboxDelta = function ( deltas, mailboxId ) {
-    return deltas[ mailboxId ] || ( deltas[ mailboxId ] = {
-        totalMessages: 0,
-        unreadMessages: 0,
+const getMailboxDelta = function ( deltas, mailboxSK ) {
+    return deltas[ mailboxSK ] || ( deltas[ mailboxSK ] = {
+        totalEmails: 0,
+        unreadEmails: 0,
         totalThreads: 0,
         unreadThreads: 0,
         removed: [],
@@ -33,31 +36,65 @@ const getMailboxDelta = function ( deltas, mailboxId ) {
 };
 
 const updateMailboxCounts = function ( mailboxDeltas ) {
-    var mailboxId, delta, mailbox;
-    for ( mailboxId in mailboxDeltas ) {
-        delta = mailboxDeltas[ mailboxId ];
-        mailbox = store.getRecord( Mailbox, mailboxId );
-        if ( delta.totalMessages ) {
-            mailbox.increment( 'totalMessages', delta.totalMessages );
+    var ignoreCountsForMailboxIds = connection.ignoreCountsForMailboxIds;
+    var mailboxSK, delta, mailbox;
+    for ( mailboxSK in mailboxDeltas ) {
+        delta = mailboxDeltas[ mailboxSK ];
+        mailbox = store.getRecordFromStoreKey( mailboxSK );
+        if ( delta.totalEmails ) {
+            mailbox.set( 'totalEmails', Math.max( 0,
+                mailbox.get( 'totalEmails' ) + delta.totalEmails ) );
         }
-        if ( delta.unreadMessages ) {
-            mailbox.increment( 'unreadMessages', delta.unreadMessages );
+        if ( delta.unreadEmails ) {
+            mailbox.set( 'unreadEmails', Math.max( 0,
+                mailbox.get( 'unreadEmails' ) + delta.unreadEmails ) );
         }
         if ( delta.totalThreads ) {
-            mailbox.increment( 'totalThreads', delta.totalThreads );
+            mailbox.set( 'totalThreads', Math.max( 0,
+                mailbox.get( 'totalThreads' ) + delta.totalThreads ) );
         }
         if ( delta.unreadThreads ) {
-            mailbox.increment( 'unreadThreads', delta.unreadThreads );
+            mailbox.set( 'unreadThreads', Math.max( 0,
+                mailbox.get( 'unreadThreads' ) + delta.unreadThreads ) );
         }
-        // Fetch the real counts, just in case. We set it obsolete
-        // first, so if another fetch is already in progress, the
-        // results of that are discarded and it is fetched again.
-        mailbox.setObsolete()
-               .fetch();
+        if ( !connection.get( 'inFlightRequest' ) ) {
+            // Fetch the real counts, just in case.
+            mailbox.fetch();
+        } else {
+            // The mailbox may currently be loading; if it loads, it will have
+            // data from before this pre-emptive change was made. We need to
+            // ignore that and load it again.
+            if ( !ignoreCountsForMailboxIds ) {
+                connection.ignoreCountsForMailboxIds =
+                    ignoreCountsForMailboxIds = {};
+                connection.get( 'inFlightCallbacks' )
+                    .push([ '', connection.fetchIgnoredMailboxes ]);
+            }
+            ignoreCountsForMailboxIds[
+                mailbox.get( 'accountId' ) + '/' + mailbox.get( 'id' )
+            ] = mailbox;
+        }
     }
 };
 
 // --- Preemptive query updates ---
+
+const isSortedOnKeyword = function ( sort, keyword ) {
+    for ( var i = 0, l = sort.length; i < l; i += 1 ) {
+        if ( sort[i].keyword === keyword ) {
+            return true;
+        }
+    }
+    return false;
+};
+
+const isSortedOnUnread = function ( sort ) {
+    return isSortedOnKeyword( sort, '$seen' );
+};
+
+const isSortedOnFlagged = function ( sort ) {
+    return isSortedOnKeyword( sort, '$flagged' );
+};
 
 const filterHasKeyword = function ( filter, keyword ) {
     return (
@@ -69,40 +106,27 @@ const filterHasKeyword = function ( filter, keyword ) {
     );
 };
 
-const isSortedOnUnread = function ( sort ) {
-    for ( var i = 0, l = sort.length; i < l; i += 1 ) {
-        if ( /:$Seen /.test( sort[i] ) ) {
-            return true;
-        }
-    }
-    return false;
-};
 const isFilteredOnUnread = function ( filter ) {
     if ( filter.operator ) {
         return filter.conditions.some( isFilteredOnUnread );
     }
-    return filterHasKeyword( filter, '$Seen' );
+    return filterHasKeyword( filter, '$seen' );
 };
-const isSortedOnFlagged = function ( sort ) {
-    for ( var i = 0, l = sort.length; i < l; i += 1 ) {
-        if ( /:\$Flagged /.test( sort[i] ) ) {
-            return true;
-        }
-    }
-    return false;
-};
+
 const isFilteredOnFlagged = function ( filter ) {
     if ( filter.operator ) {
         return filter.conditions.some( isFilteredOnFlagged );
     }
-    return filterHasKeyword( filter, '$Flagged' );
+    return filterHasKeyword( filter, '$flagged' );
 };
+
 const isFilteredOnMailboxes = function ( filter ) {
     if ( filter.operator ) {
         return filter.conditions.some( isFilteredOnMailboxes );
     }
     return ( 'inMailbox' in filter ) || ( 'inMailboxOtherThan' in filter );
 };
+
 const isFilteredJustOnMailbox = function ( filter ) {
     var isJustMailboxes = false;
     var term;
@@ -133,8 +157,8 @@ const comparators = {
 
         return aId < bId ? -1 : aId > bId ? 1 : 0;
     },
-    date: function ( a, b ) {
-        return a.get( 'date' ) - b.get( 'date' );
+    receivedAt: function ( a, b ) {
+        return a.get( 'receivedAt' ) - b.get( 'receivedAt' );
     },
     size: function ( a, b ) {
         return a.get( 'size' ) - b.get( 'size' );
@@ -148,8 +172,10 @@ const comparators = {
     to: function ( a, b ) {
         var aTo = a.get( 'to' );
         var bTo = b.get( 'to' );
-        var aToPart = aTo && aTo.length ? aTo[0].name || aTo[0].email : '';
-        var bToPart = bTo && bTo.length ? bTo[0].name || bTo[0].email : '';
+        var aToPart = ( aTo && aTo.length &&
+            ( aTo[0].name || aTo[0].email ) ) || '';
+        var bToPart = ( bTo && bTo.length &&
+            ( bTo[0].name || bTo[0].email ) ) || '';
 
         return aToPart < bToPart ? -1 : aTo > bToPart ? 1 : 0;
     },
@@ -159,29 +185,45 @@ const comparators = {
 
         return aSubject < bSubject ? -1 : aSubject > bSubject ? 1 : 0;
     },
-    'keyword:$Flagged': function ( a, b ) {
-        var aFlagged = a.get( 'isFlagged' );
-        var bFlagged = b.get( 'isFlagged' );
+    hasKeyword: function ( a, b, field ) {
+        var keyword = field.keyword;
+        var aHasKeyword = !!a.get( 'keywords' )[ keyword ];
+        var bHasKeyword = !!b.get( 'keywords' )[ keyword ];
 
-        return aFlagged === bFlagged ? 0 :
-            aFlagged ? -1 : 1;
+        return aHasKeyword === bHasKeyword ? 0 :
+            aHasKeyword ? 1 : -1;
     },
-    'someThreadKeyword:$Flagged': function ( a, b ) {
-        return comparators.isFlagged( a.get( 'thread' ), b.get( 'thread' ) );
-    }
+    someInThreadHaveKeyword: function ( a, b, field ) {
+        var keyword = field.keyword;
+        var hasKeyword = function ( message ) {
+            return !!message.get( 'keywords' )[ keyword ];
+        };
+        var aThread = a.get( 'thread' );
+        var bThread = b.get( 'thread' );
+        var aHasKeyword = aThread.get( 'messages' ).some( hasKeyword );
+        var bHasKeyword = bThread.get( 'messages' ).some( hasKeyword );
+
+        return aHasKeyword === bHasKeyword ? 0 :
+            aHasKeyword ? 1 : -1;
+    },
 };
 
 const compareToStoreKey = function ( fields, storeKey, message ) {
     var otherMessage = storeKey && ( store.getStatus( storeKey ) & READY ) ?
             store.getRecordFromStoreKey( storeKey ) : null;
-    var i, l, comparator, result;
+    var i, l, field, comparator, result;
     if ( !otherMessage ) {
         return 1;
     }
     for ( i = 0, l = fields.length; i < l; i += 1 ) {
-        comparator = comparators[ fields[i][0] ];
-        if ( comparator && ( result = comparator( otherMessage, message ) ) ) {
-            return result * fields[i][1];
+        field = fields[i];
+        comparator = comparators[ field.property ];
+        if ( comparator &&
+                ( result = comparator( otherMessage, message, field ) ) ) {
+            if ( !field.isAscending ) {
+                result = -result;
+            }
+            return result;
         }
     }
     return 0;
@@ -190,61 +232,67 @@ const compareToStoreKey = function ( fields, storeKey, message ) {
 const compareToMessage = function ( fields, aData, bData ) {
     var a = aData.message;
     var b = bData.message;
-    var i, l, comparator, result;
+    var i, l, field, comparator, result;
     for ( i = 0, l = fields.length; i < l; i += 1 ) {
-        comparator = comparators[ fields[i] ];
-        if ( comparator && ( result = comparator( a, b ) ) ) {
+        field = fields[i];
+        comparator = comparators[ field.property ];
+        if ( comparator && ( result = comparator( a, b, field ) ) ) {
+            if ( !field.isAscending ) {
+                result = -result;
+            }
             return result;
         }
     }
     return 0;
 };
 
-const splitDirection = function ( field ) {
-    var space = field.indexOf( ' ' );
-    var prop = space ? field.slice( 0, space ) : field;
-    var dir = space && field.slice( space + 1 ) === 'asc' ? 1 : -1;
-    return [ prop, dir ];
-};
-
 const calculatePreemptiveAdd = function ( query, addedMessages, replaced ) {
     var storeKeys = query.getStoreKeys();
-    var sort = query.get( 'sort' ).map( splitDirection );
+    var sort = query.get( 'sort' );
     var comparator = compareToStoreKey.bind( null, sort );
     var threadSKToIndex = {};
     var indexDelta = 0;
-    var added, i, l, messageSK, threadId, threadSK;
+    var added, i, l, messageSK, threadSK, seenThreadSk;
 
     added = addedMessages.reduce( function ( added, message ) {
         added.push({
             message: message,
             messageSK: message.get( 'storeKey' ),
-            threadSK: message.get( 'thread' ).get( 'storeKey' ),
-            index: storeKeys.binarySearch( message, comparator )
+            threadSK: message.getFromPath( 'thread.storeKey' ),
+            index: storeKeys.binarySearch( message, comparator ),
         });
         return added;
     }, [] );
     added.sort( compareToMessage.bind( null, sort ) );
 
     if ( !added.length ) {
-        return null;
+        return added;
     }
 
     if ( query.get( 'collapseThreads' ) ) {
+        seenThreadSk = {};
+        added = added.filter( function ( item ) {
+            var threadSK = item.threadSK;
+            if ( seenThreadSk[ threadSK ] ) {
+                return false;
+            }
+            seenThreadSk[ threadSK ] = true;
+            return true;
+        });
         l = Math.min( added.last().index, storeKeys.length );
         for ( i = 0; i < l; i += 1 ) {
             messageSK = storeKeys[i];
             if ( messageSK && ( store.getStatus( messageSK ) & READY ) ) {
-                threadId = store.getRecordFromStoreKey( messageSK )
-                                .get( 'threadId' );
-                threadSK = store.getStoreKey( Thread, threadId );
+                threadSK = store.getRecordFromStoreKey( messageSK )
+                                .getData()
+                                .threadId;
                 threadSKToIndex[ threadSK ] = i;
             }
         }
     }
 
     return added.reduce( function ( result, item ) {
-        var threadIndex = threadSKToIndex[ item.threadSK ];
+        var threadIndex = item.threadSK && threadSKToIndex[ item.threadSK ];
         if ( threadIndex !== undefined ) {
             if ( threadIndex >= item.index ) {
                 replaced.push( storeKeys[ threadIndex ] );
@@ -252,7 +300,10 @@ const calculatePreemptiveAdd = function ( query, addedMessages, replaced ) {
                 return result;
             }
         }
-        result.push([ item.index + indexDelta, messageSK ]);
+        result.push({
+            index: item.index + indexDelta,
+            storeKey: item.messageSK,
+        });
         indexDelta += 1;
         return result;
     }, [] );
@@ -264,14 +315,16 @@ const updateQueries = function ( filterTest, sortTest, deltas ) {
     // pre-emptively update it.
     var queries = store.getAllQueries();
     var l = queries.length;
-    var query, filter, sort, delta, replaced, added;
+    var query, filter, sort, mailboxSK, delta, replaced, added;
     while ( l-- ) {
         query = queries[l];
         if ( query instanceof MessageList ) {
             filter = query.get( 'where' );
             sort = query.get( 'sort' );
             if ( deltas && isFilteredJustOnMailbox( filter ) ) {
-                delta = deltas[ filter.inMailbox ];
+                mailboxSK = store.getStoreKey(
+                    query.get( 'accountId' ), Mailbox, filter.inMailbox );
+                delta = deltas[ mailboxSK ];
                 if ( delta ) {
                     replaced = [];
                     added =
@@ -282,7 +335,7 @@ const updateQueries = function ( filterTest, sortTest, deltas ) {
                     });
                     if ( replaced.length ) {
                         query.clientDidGenerateUpdate({
-                            added: null,
+                            added: [],
                             removed: replaced,
                         });
                     }
@@ -300,23 +353,20 @@ const identity = function ( v ) { return v; };
 
 const addMoveInverse = function ( inverse, undoManager, willAdd, willRemove, messageSK ) {
     var l = willRemove ? willRemove.length : 1;
-    var i, addMailboxId, removeMailboxId, data;
+    var i, addMailbox, removeMailbox, key, data;
     for ( i = 0; i < l; i += 1 ) {
-        addMailboxId = willAdd ? willAdd[0].get( 'id' ) : '-';
-        removeMailboxId = willRemove ? willRemove[i].get( 'id' ) : '-';
-        data = inverse[ addMailboxId + removeMailboxId ];
+        addMailbox = willAdd ? willAdd[0] : null;
+        removeMailbox = willRemove ? willRemove[i] : null;
+        key = ( addMailbox ? addMailbox.get( 'storeKey' ) : '-' ) +
+            ( removeMailbox ? removeMailbox.get( 'storeKey' ) : '-' );
+        data = inverse[ key ];
         if ( !data ) {
             data = {
                 method: 'move',
                 messageSKs: [],
-                args: [
-                    null,
-                    willRemove && removeMailboxId,
-                    willAdd && addMailboxId,
-                    true
-                ]
+                args: [ null, removeMailbox, addMailbox, true ],
             };
-            inverse[ addMailboxId + removeMailboxId ] = data;
+            inverse[ key ] = data;
             undoManager.pushUndoData( data );
         }
         data.messageSKs.push( messageSK );
@@ -371,7 +421,10 @@ const getMessages = function getMessages ( messageSKs, expand, mailbox, callback
                     allLoaded = false;
                 }
             } else {
-                JMAP.mail.fetchRecord( Message.Thread,
+                // Fetch all messages in thread
+                connection.fetchRecord(
+                    store.getAccountIdFromStoreKey( messageSK ),
+                    Message.Thread,
                     store.getIdFromStoreKey( messageSK ) );
                 allLoaded = false;
             }
@@ -382,13 +435,13 @@ const getMessages = function getMessages ( messageSKs, expand, mailbox, callback
     });
 
     if ( allLoaded || hasDoneLoad ) {
-        JMAP.mail.gc.isPaused = false;
+        connection.gc.isPaused = false;
         callback( messages );
     } else {
         // Suspend gc and wait for next API request: guaranteed to load
         // everything
-        JMAP.mail.gc.isPaused = true;
-        JMAP.mail.addCallback(
+        connection.gc.isPaused = true;
+        connection.addCallback(
             getMessages.bind( null,
                 messageSKs, expand, mailbox, callback, true )
         );
@@ -400,11 +453,10 @@ const getMessages = function getMessages ( messageSKs, expand, mailbox, callback
 
 const doUndoAction = function ( method, args ) {
     return function ( callback, messages ) {
-        var mail = JMAP.mail;
         if ( messages ) {
             args[0] = messages;
         }
-        mail[ method ].apply( mail, args );
+        connection[ method ].apply( connection, args );
         callback( null );
     };
 };
@@ -419,9 +471,11 @@ const roleIndex = new O.Object({
     buildIndex: function () {
         var index = this.index = store.getAll( Mailbox ).reduce(
             function ( index, mailbox ) {
+                var accountId = mailbox.get( 'accountId' );
                 var role = mailbox.get( 'role' );
                 if ( role ) {
-                    index[ role ] = mailbox.get( 'id' );
+                    ( index[ accountId ] ||
+                        ( index[ accountId ] = {} ) )[ role ] = mailbox;
                 }
                 return index;
             }, {} );
@@ -429,40 +483,45 @@ const roleIndex = new O.Object({
     },
     getIndex: function () {
         return this.index || this.buildIndex();
-    }
+    },
 });
 store.on( Mailbox, roleIndex, 'clearIndex' );
 
+const getMailboxForRole = function ( accountId, role ) {
+    if ( !accountId ) {
+        accountId = auth.get( 'primaryAccounts' )[ auth.MAIL_DATA ];
+    }
+    var accountIndex = roleIndex.getIndex()[ accountId ];
+    return accountIndex && accountIndex[ role ] || null;
+};
+
 // ---
 
-Object.assign( JMAP.mail, {
+Object.assign( connection, {
 
     getMessages: getMessages,
 
-    getMailboxIdForRole: function ( role ) {
-        return roleIndex.getIndex()[ role ] || null;
-    },
+    getMailboxForRole: getMailboxForRole,
 
     // ---
 
-    findMessage: function ( where ) {
+    findMessage: function ( accountId, where ) {
         return new Promise( function ( resolve, reject ) {
-            JMAP.mail.callMethod( 'getMessageList', {
+            connection.callMethod( 'Email/query', {
+                accountId: accountId,
                 filter: where,
                 sort: null,
                 position: 0,
                 limit: 1,
-                fetchMessages: true,
-                fetchMessageProperties: Message.headerProperties,
             }, function ( response ) {
                 var call = response[0];
                 var method = call[0];
                 var args = call[1];
                 var id;
-                if ( method === 'messageList' ) {
-                    id = args.messageIds[0];
+                if ( method === 'Email/query' ) {
+                    id = args.ids[0];
                     if ( id ) {
-                        resolve( store.getRecord( Message, id ) );
+                        resolve( store.getRecord( accountId, Message, id ) );
                     } else {
                         reject({
                             type: 'notFound',
@@ -471,6 +530,13 @@ Object.assign( JMAP.mail, {
                 } else {
                     reject( args );
                 }
+            }).callMethod( 'Email/get', {
+                '#ids': {
+                    resultOf: connection.getPreviousMethodId(),
+                    name: 'Email/query',
+                    path: '/ids',
+                },
+                properties: Message.headerProperties,
             });
         });
     },
@@ -572,7 +638,6 @@ Object.assign( JMAP.mail, {
 
     setUnread: function ( messages, isUnread, allowUndo ) {
         var mailboxDeltas = {};
-        var trashId = this.getMailboxIdForRole( 'trash' );
         var inverseMessageSKs = allowUndo ? [] : null;
         var inverse = allowUndo ? {
                 method: 'setUnread',
@@ -586,7 +651,8 @@ Object.assign( JMAP.mail, {
 
         messages.forEach( function ( message ) {
             // Check we have something to do
-            if ( message.get( 'isUnread' ) === isUnread ) {
+            if ( message.get( 'isUnread' ) === isUnread ||
+                    !message.hasPermission( 'maySetSeen' ) ) {
                 return;
             }
 
@@ -600,7 +666,7 @@ Object.assign( JMAP.mail, {
             var threadUnreadInNotTrash =
                 isInNotTrash && thread && thread.get( 'isUnreadInNotTrash' ) ?
                 1 : 0;
-            var mailboxCounts, mailboxId, delta, unreadDelta;
+            var mailboxCounts, mailboxSK, mailbox, delta, unreadDelta;
 
             // Update the message
             message.set( 'isUnread', isUnread );
@@ -617,9 +683,9 @@ Object.assign( JMAP.mail, {
 
             // Calculate any changes to the mailbox unread message counts
             message.get( 'mailboxes' ).forEach( function ( mailbox ) {
-                var mailboxId = mailbox.get( 'id' );
-                var delta = getMailboxDelta( mailboxDeltas, mailboxId );
-                delta.unreadMessages += isUnread ? 1 : -1;
+                var mailboxSK = mailbox.get( 'storeKey' );
+                var delta = getMailboxDelta( mailboxDeltas, mailboxSK );
+                delta.unreadEmails += isUnread ? 1 : -1;
             });
 
             // See if the thread unread state has changed
@@ -637,11 +703,12 @@ Object.assign( JMAP.mail, {
             // Calculate any changes to the mailbox unread thread counts
             if ( threadUnreadInNotTrash || threadUnreadInTrash ) {
                 mailboxCounts = thread.get( 'mailboxCounts' );
-                for ( mailboxId in mailboxCounts ) {
-                    unreadDelta = mailboxId === trashId ?
+                for ( mailboxSK in mailboxCounts ) {
+                    mailbox = store.getRecordFromStoreKey( mailboxSK );
+                    unreadDelta = mailbox.get( 'role' ) === 'trash' ?
                         threadUnreadInTrash : threadUnreadInNotTrash;
                     if ( unreadDelta ) {
-                        delta = getMailboxDelta( mailboxDeltas, mailboxId );
+                        delta = getMailboxDelta( mailboxDeltas, mailboxSK );
                         delta.unreadThreads += unreadDelta;
                     }
                 }
@@ -675,7 +742,8 @@ Object.assign( JMAP.mail, {
 
         messages.forEach( function ( message ) {
             // Check we have something to do
-            if ( message.get( 'isFlagged' ) === isFlagged ) {
+            if ( message.get( 'isFlagged' ) === isFlagged ||
+                    !message.hasPermission( 'maySetKeywords' ) ) {
                 return;
             }
 
@@ -698,25 +766,31 @@ Object.assign( JMAP.mail, {
         return this;
     },
 
-    move: function ( messages, addMailboxId, removeMailboxId, allowUndo ) {
+    move: function ( messages, addMailbox, removeMailbox, allowUndo ) {
         var mailboxDeltas = {};
         var inverse = allowUndo ? {} : null;
+        var removeAll = removeMailbox === 'ALL';
         var undoManager = this.undoManager;
-
-        var addMailbox = addMailboxId ?
-                store.getRecord( Mailbox, addMailboxId ) : null;
-        var removeMailbox = removeMailboxId && removeMailboxId !== 'ALL' ?
-                store.getRecord( Mailbox, removeMailboxId ) : null;
         var addMailboxOnlyIfNone = false;
+        var toCopy = {};
+        // #if FASTMAIL
+        var now = new Date().toJSON() + 'Z';
+        // #end
+        var accountId, fromAccountId, mailboxIds;
+
         if ( !addMailbox ) {
             addMailboxOnlyIfNone = true;
-            addMailbox = store.getRecord( Mailbox,
-                this.getMailboxIdForRole( 'archive' ) ||
-                this.getMailboxIdForRole( 'inbox' )
-            );
+            accountId = messages.length ?
+                messages[0].get( 'accountId' ) : null;
+            addMailbox =
+                getMailboxForRole( accountId, 'archive' ) ||
+                getMailboxForRole( accountId, 'inbox' );
+        } else {
+            accountId = addMailbox.get( 'accountId' );
         }
-
-        // TODO: Check mailboxes still exist? Could in theory have been deleted.
+        if ( removeAll ) {
+            removeMailbox = null;
+        }
 
         // Check we're not moving from/to the same place
         if ( addMailbox === removeMailbox && !addMailboxOnlyIfNone ) {
@@ -725,19 +799,19 @@ Object.assign( JMAP.mail, {
 
         // Check ACLs
         if ( addMailbox && ( !addMailbox.is( READY ) ||
-                !addMailbox.get( 'mayAddItems' ) ) ) {
+                !addMailbox.get( 'myRights' ).mayAddItems ) ) {
             O.RunLoop.didError({
                 name: 'JMAP.mail.move',
-                message: 'May not add messages to ' + addMailbox.get( 'name' )
+                message: 'May not add messages to ' + addMailbox.get( 'name' ),
             });
             return this;
         }
         if ( removeMailbox && ( !removeMailbox.is( READY ) ||
-                !removeMailbox.get( 'mayRemoveItems' ) ) ) {
+                !removeMailbox.get( 'myRights' ).mayRemoveItems ) ) {
             O.RunLoop.didError({
                 name: 'JMAP.mail.move',
                 message: 'May not remove messages from ' +
-                    removeMailbox.get( 'name' )
+                    removeMailbox.get( 'name' ),
             });
             return this;
         }
@@ -745,6 +819,7 @@ Object.assign( JMAP.mail, {
         messages.forEach( function ( message ) {
             var messageSK = message.get( 'storeKey' );
             var mailboxes = message.get( 'mailboxes' );
+            var messageAccountId = message.get( 'accountId' );
 
             // Calculate the set of mailboxes to add/remove
             var willAdd = addMailbox && [ addMailbox ];
@@ -761,10 +836,10 @@ Object.assign( JMAP.mail, {
             var isUnread, thread;
             var deltaThreadUnreadInNotTrash, deltaThreadUnreadInTrash;
             var decrementMailboxCount, incrementMailboxCount;
-            var delta, mailboxId, mailbox;
+            var delta, mailboxSK, mailbox;
 
             // Calculate the changes required to the message's mailboxes
-            if ( removeMailboxId === 'ALL' ) {
+            if ( removeAll ) {
                 willRemove = mailboxes.map( identity );
                 mailboxToRemoveIndex = 0;
                 alreadyHasMailbox = mailboxes.contains( addMailbox );
@@ -788,9 +863,32 @@ Object.assign( JMAP.mail, {
                 return;
             }
 
-            if ( addMailboxOnlyIfNone &&
-                    willRemove.length !== mailboxes.get( 'length' ) ) {
-                willAdd = null;
+            if ( addMailboxOnlyIfNone ) {
+                if ( willRemove.length !== mailboxes.get( 'length' ) ) {
+                    willAdd = null;
+                } else if ( !willAdd ) {
+                    // Can't remove from everything without adding
+                    return;
+                }
+            }
+
+            // Handle moving cross-account
+            if ( willAdd && messageAccountId !== accountId ) {
+                if ( removeAll ||
+                        ( willRemove && mailboxes.get( 'length' ) === 1 ) ) {
+                    // Removing all existing mailboxes? No problem, just set
+                    // message to new account id.
+                    message.set( 'accountId', accountId );
+                } else {
+                    // Otherwise, we need to copy.
+                    ( toCopy[ messageAccountId ] ||
+                        ( toCopy[ messageAccountId ] = [] ) ).push( message );
+                    if ( willRemove ) {
+                        willAdd = null;
+                    } else {
+                        return;
+                    }
+                }
             }
 
             // Get the thread and cache the current unread state
@@ -807,11 +905,16 @@ Object.assign( JMAP.mail, {
                 willRemove ? willRemove.length : 0,
                 willAdd
             );
-            // FastMail specific
+            // #if FASTMAIL
             if ( willRemove ) {
-                message.set( 'previousFolderId', willRemove[0].get( 'id' ) );
+                message.set( 'removedDates',
+                    willRemove.reduce( function ( removedDates, mailbox ) {
+                        removedDates[ mailbox.get( 'id' ) ] = now;
+                        return removedDates;
+                    }, clone( message.get( 'removedDates' ) ) )
+                );
             }
-            // end
+            // #end
 
             if ( alreadyHasMailbox ) {
                 willAdd = null;
@@ -832,15 +935,15 @@ Object.assign( JMAP.mail, {
             }
 
             decrementMailboxCount = function ( mailbox ) {
-                var delta = getMailboxDelta(
-                        mailboxDeltas, mailbox.get( 'id' ) );
+                var mailboxSK = mailbox.get( 'storeKey' );
+                var delta = getMailboxDelta( mailboxDeltas, mailboxSK );
                 delta.removed.push( messageSK );
-                delta.totalMessages -= 1;
+                delta.totalEmails -= 1;
                 if ( isUnread ) {
-                    delta.unreadMessages -= 1;
+                    delta.unreadEmails -= 1;
                 }
                 // If this was the last message in the thread in the mailbox
-                if ( thread && !mailboxCounts[ mailboxId ] ) {
+                if ( thread && !mailboxCounts[ mailboxSK ] ) {
                     delta.totalThreads -= 1;
                     if ( mailbox.get( 'role' ) === 'trash' ?
                             wasThreadUnreadInTrash :
@@ -850,16 +953,16 @@ Object.assign( JMAP.mail, {
                 }
             };
             incrementMailboxCount = function ( mailbox ) {
-                var delta = getMailboxDelta(
-                        mailboxDeltas, mailbox.get( 'id' ) );
+                var mailboxSK = mailbox.get( 'storeKey' );
+                var delta = getMailboxDelta( mailboxDeltas, mailboxSK );
                 delta.added.push( message );
-                delta.totalMessages += 1;
+                delta.totalEmails += 1;
                 if ( isUnread ) {
-                    delta.unreadMessages += 1;
+                    delta.unreadEmails += 1;
                 }
                 // If this was the first message in the thread in the
                 // mailbox
-                if ( thread && mailboxCounts[ mailboxId ] === 1 ) {
+                if ( thread && mailboxCounts[ mailboxSK ] === 1 ) {
                     delta.totalThreads += 1;
                     if ( mailbox.get( 'role' ) === 'trash' ?
                             isThreadUnreadInTrash : isThreadUnreadInNotTrash ) {
@@ -891,11 +994,11 @@ Object.assign( JMAP.mail, {
                 ( wasThreadUnreadInTrash ? 1 : 0 );
 
             if ( deltaThreadUnreadInNotTrash || deltaThreadUnreadInTrash ) {
-                for ( mailboxId in mailboxCounts ) {
-                    mailbox = store.getRecord( Mailbox, mailboxId );
-                    if ( mailboxCounts[ mailboxId ] > 1 ||
+                for ( mailboxSK in mailboxCounts ) {
+                    mailbox = store.getRecordFromStoreKey( mailboxSK );
+                    if ( mailboxCounts[ mailboxSK ] > 1 ||
                             !willAdd.contains( mailbox ) ) {
-                        delta = getMailboxDelta( mailboxDeltas, mailboxId );
+                        delta = getMailboxDelta( mailboxDeltas, mailboxSK );
                         if ( mailbox.get( 'role' ) === 'trash' ) {
                             delta.unreadThreads += deltaThreadUnreadInTrash;
                         } else {
@@ -905,6 +1008,33 @@ Object.assign( JMAP.mail, {
                 }
             }
         });
+
+        // Copy if necessary
+        for ( fromAccountId in toCopy ) {
+            mailboxIds = {};
+            mailboxIds[ addMailbox.toIdOrStoreKey() ] = true;
+            this.callMethod( 'Email/copy', {
+                fromAccountId: fromAccountId,
+                toAccountId: accountId,
+                create: toCopy[ fromAccountId ].reduce(
+                    function ( map, message, index ) {
+                        map[ 'copy' + index ] = {
+                            id: message.get( 'id' ),
+                            mailboxIds: mailboxIds,
+                            keywords: message.get( 'keywords' ),
+                        };
+                        return map;
+                    }, {} ),
+            });
+        }
+        if ( Object.keys( toCopy ).length ) {
+            // If we copied something, we need to fetch the changes manually
+            // as we don't track this ourselves.
+            store
+                .fetchAll( accountId, Mailbox, true )
+                .fetchAll( accountId, Thread, true )
+                .fetchAll( accountId, Message, true );
+        }
 
         // Update counts on mailboxes
         updateMailboxCounts( mailboxDeltas );
@@ -930,7 +1060,7 @@ Object.assign( JMAP.mail, {
 
             var isUnread, thread;
             var deltaThreadUnreadInNotTrash, deltaThreadUnreadInTrash;
-            var delta, mailboxId, mailbox, messageWasInMailbox, isTrash;
+            var delta, mailboxSK, mailbox, messageWasInMailbox, isTrash;
 
             // Get the thread and cache the current unread state
             isUnread = message.get( 'isUnread' ) && !message.get( 'isDraft' );
@@ -960,36 +1090,36 @@ Object.assign( JMAP.mail, {
                     ( isThreadUnreadInTrash ? 1 : 0 ) -
                     ( wasThreadUnreadInTrash ? 1 : 0 );
 
-                for ( mailboxId in mailboxCounts ) {
-                    mailbox = store.getRecord( Mailbox, mailboxId );
+                for ( mailboxSK in mailboxCounts ) {
+                    mailbox = store.getRecordFromStoreKey( mailboxSK );
                     messageWasInMailbox = mailboxes.contains( mailbox );
                     isTrash = mailbox.get( 'role' ) === 'trash';
                     if ( messageWasInMailbox ) {
-                        delta = getMailboxDelta( mailboxDeltas, mailboxId );
-                        delta.totalMessages -= 1;
+                        delta = getMailboxDelta( mailboxDeltas, mailboxSK );
+                        delta.totalEmails -= 1;
                         if ( isUnread ) {
-                            delta.unreadMessages -= 1;
+                            delta.unreadEmails -= 1;
                         }
                         delta.removed.push( messageSK );
-                        if ( mailboxCounts[ mailboxId ] === 1 ) {
+                        if ( mailboxCounts[ mailboxSK ] === 1 ) {
                             delta.totalThreads -= 1;
                         }
                     }
                     if ( isTrash && deltaThreadUnreadInTrash ) {
-                        getMailboxDelta( mailboxDeltas, mailboxId )
+                        getMailboxDelta( mailboxDeltas, mailboxSK )
                             .unreadThreads += deltaThreadUnreadInTrash;
                     } else if ( !isTrash && deltaThreadUnreadInNotTrash ) {
-                        getMailboxDelta( mailboxDeltas, mailboxId )
+                        getMailboxDelta( mailboxDeltas, mailboxSK )
                             .unreadThreads += deltaThreadUnreadInNotTrash;
                     }
                 }
             } else {
                 mailboxes.forEach( function ( mailbox ) {
-                    var delta =
-                        getMailboxDelta( mailboxDeltas, mailbox.get( 'id' ) );
-                    delta.totalMessages -= 1;
+                    var delta = getMailboxDelta(
+                        mailboxDeltas, mailbox.get( 'storeKey' ) );
+                    delta.totalEmails -= 1;
                     if ( isUnread ) {
-                        delta.unreadMessages -= 1;
+                        delta.unreadEmails -= 1;
                     }
                     delta.removed.push( messageSK );
                 });
@@ -1006,28 +1136,35 @@ Object.assign( JMAP.mail, {
     },
 
     report: function ( messages, asSpam, allowUndo ) {
-        var messageIds = [];
         var messageSKs = [];
+        var accounts = {};
+        var accountId;
 
         messages.forEach( function ( message ) {
-            messageIds.push( message.get( 'id' ) );
+            var accountId = message.get( 'accountId' );
+            var account = accounts[ accountId ] ||
+                ( accounts[ accountId ] = [] );
+            account.push( message.get( 'id' ) );
             messageSKs.push( message.get( 'storeKey' ) );
         });
 
-        this.callMethod( 'reportMessages', {
-            messageIds: messageIds,
-            asSpam: asSpam
-        });
+        for ( accountId in accounts ) {
+            this.callMethod( 'Email/report', {
+                accountId: accountId,
+                ids: accounts[ accountId ],
+                type: asSpam ? 'spam' : 'notspam',
+            });
+        }
 
         if ( allowUndo ) {
             this.undoManager.pushUndoData({
-                method: 'reportMessages',
+                method: 'report',
                 messageSKs: messageSKs,
                 args: [
                     null,
                     !asSpam,
                     true
-                ]
+                ],
             });
         }
 
@@ -1049,7 +1186,7 @@ Object.assign( JMAP.mail, {
         var isUnread = !isDraft && message.get( 'isUnread' );
         var mailboxDeltas = {};
         var mailboxCounts = null;
-        var messageSK, mailboxId, mailbox, isTrash;
+        var mailboxSK, mailbox, isTrash;
 
         // Cache the current thread state
         if ( thread && thread.is( READY ) ) {
@@ -1064,18 +1201,18 @@ Object.assign( JMAP.mail, {
                 .set( 'isDraft', true )
                 .set( 'isUnread', false );
             mailboxes.add(
-                store.getRecord( Mailbox, this.getMailboxIdForRole( 'drafts' ) )
+                getMailboxForRole( message.get( 'accountId' ), 'drafts' ) ||
+                getMailboxForRole( null, 'drafts' )
             );
         }
 
         // Create the message
         message.saveToStore();
-        messageSK = message.get( 'storeKey' );
 
         if ( mailboxCounts ) {
             // Preemptively update the thread
             var inReplyTo = isDraft &&
-                    message.getFromPath( 'headers.in-reply-to' ) || '';
+                    message.getFromPath( 'inReplyTo.0' ) || '';
             var messages = thread.get( 'messages' );
             var seenInReplyTo = false;
             var l = messages.get( 'length' );
@@ -1085,13 +1222,13 @@ Object.assign( JMAP.mail, {
                 for ( i = 0; i < l; i += 1 ) {
                     messageInThread = messages.getObjectAt( i );
                     if ( seenInReplyTo ) {
-                        if ( !messageInThread.get( 'isDraft') ||
+                        if ( !messageInThread.get( 'isDraft' ) ||
                                 inReplyTo !== messageInThread
-                                    .getFromPath( 'headers.in-reply-to' ) ) {
+                                    .getFromPath( 'inReplyTo.0' ) ) {
                             break;
                         }
                     } else if ( inReplyTo === messageInThread
-                            .getFromPath( 'headers.message-id' ) ) {
+                            .getFromPath( 'messageId.0' ) ) {
                         seenInReplyTo = true;
                     }
                 }
@@ -1114,14 +1251,14 @@ Object.assign( JMAP.mail, {
         }
 
         mailboxes.forEach( function ( mailbox ) {
-            var delta =
-                getMailboxDelta( mailboxDeltas, mailbox.get( 'id' ) );
-            delta.added.push( messageSK );
-            delta.totalMessages += 1;
+            var mailboxSK = mailbox.get( 'storeKey' );
+            var delta = getMailboxDelta( mailboxDeltas, mailboxSK );
+            delta.added.push( message );
+            delta.totalEmails += 1;
             if ( isUnread ) {
-                delta.unreadMessages += 1;
+                delta.unreadEmails += 1;
             }
-            if ( mailboxCounts && !mailboxCounts[ mailboxId ] ) {
+            if ( mailboxCounts && !mailboxCounts[ mailboxSK ] ) {
                 delta.totalThreads += 1;
                 if ( mailbox.get( 'role' ) === 'trash' ?
                         isThreadUnreadInTrash : isThreadUnreadInNotTrash ) {
@@ -1130,15 +1267,15 @@ Object.assign( JMAP.mail, {
             }
         });
 
-        for ( mailboxId in mailboxCounts ) {
-            mailbox = store.getRecord( Mailbox, mailboxId );
+        for ( mailboxSK in mailboxCounts ) {
+            mailbox = store.getRecordFromStoreKey( mailboxSK );
             isTrash = mailbox.get( 'role' ) === 'trash';
             if ( !mailboxes.contains( mailbox ) ) {
                 if ( isTrash && deltaThreadUnreadInTrash ) {
-                    getMailboxDelta( mailboxDeltas, mailboxId )
+                    getMailboxDelta( mailboxDeltas, mailboxSK )
                         .unreadThreads += deltaThreadUnreadInTrash;
                 } else if ( !isTrash && deltaThreadUnreadInNotTrash ) {
-                    getMailboxDelta( mailboxDeltas, mailboxId )
+                    getMailboxDelta( mailboxDeltas, mailboxSK )
                         .unreadThreads += deltaThreadUnreadInNotTrash;
                 }
             }
@@ -1156,6 +1293,7 @@ Object.assign( JMAP.mail, {
     // ---
 
     redirect: function ( messages, identity, to ) {
+        var accountId = identity.get( 'accountId' );
         var envelope = {
             mailFrom: {
                 email: identity.get( 'email' ),
@@ -1171,6 +1309,7 @@ Object.assign( JMAP.mail, {
 
         return messages.map( function ( message ) {
             return new MessageSubmission( store )
+                .set( 'accountId', accountId )
                 .set( 'identity', identity )
                 .set( 'message', message )
                 .set( 'envelope', envelope )

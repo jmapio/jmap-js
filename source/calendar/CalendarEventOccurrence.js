@@ -10,6 +10,15 @@
 
 ( function ( JMAP, undefined ) {
 
+const bind = O.bind;
+const meta = O.meta;
+const clone = O.clone;
+const isEqual = O.isEqual;
+const TimeZone = O.TimeZone;
+const Class = O.Class;
+const Obj = O.Object;
+
+const applyPatch = JMAP.Connection.applyPatch;
 const makePatches = JMAP.Connection.makePatches;
 const CalendarEvent = JMAP.CalendarEvent;
 
@@ -20,38 +29,10 @@ const mayPatch = {
     translations: true,
     locations: true,
     participants: true,
-    alerts: true
+    alerts: true,
 };
 
-const applyPatch = function ( object, path, patch ) {
-    var slash, key;
-    while ( true ) {
-        // Invalid patch; path does not exist
-        if ( !object ) {
-            return;
-        }
-        slash = path.indexOf( '/' );
-        if ( slash > -1 ) {
-            key = path.slice( 0, slash );
-            path = path.slice( slash + 1 );
-        }
-        if ( key ) {
-            key = key.replace( /~1/g, '/' ).replace( /~0/g, '~' );
-        }
-        if ( slash > -1 ) {
-            object = object[ key ];
-        } else {
-            if ( patch !== null ) {
-                object[ key ] = patch;
-            } else {
-                delete object[ key ];
-            }
-            break;
-        }
-    }
-};
-
-const proxyOverrideAttibute = function ( Type, key ) {
+const proxyOverrideAttibute = function ( Type, key, attrKey ) {
     return function ( value ) {
         var original = this.get( 'original' );
         var originalValue = this.getOriginalForKey( key );
@@ -59,30 +40,34 @@ const proxyOverrideAttibute = function ( Type, key ) {
         var recurrenceOverrides, recurrenceRule;
         var overrides, keepOverride, path;
 
+        if ( !attrKey ) {
+            attrKey = key;
+        }
+
         if ( value !== undefined ) {
             // Get current overrides for occurrence
             recurrenceOverrides =
-                O.clone( original.get( 'recurrenceOverrides' ) ) || {};
+                clone( original.get( 'recurrenceOverrides' ) ) || {};
             overrides = recurrenceOverrides[ id ] ||
                 ( recurrenceOverrides[ id ] = {} );
 
             // Clear any previous overrides for this key
             keepOverride = false;
             for ( path in overrides ) {
-                if ( path.indexOf( key ) === 0 ) {
+                if ( path.indexOf( attrKey ) === 0 ) {
                     delete overrides[ path ];
                 } else {
                     keepOverride = true;
                 }
             }
             // Set if different to parent
-            if ( mayPatch[ key ] ) {
+            if ( mayPatch[ attrKey ] ) {
                 keepOverride =
-                    makePatches( key, overrides, originalValue, value ) ||
+                    makePatches( attrKey, overrides, originalValue, value ) ||
                     keepOverride;
-            } else if ( !O.isEqual( originalValue, value ) ) {
+            } else if ( !isEqual( originalValue, value ) ) {
                 keepOverride = true;
-                overrides[ key ] = value && value.toJSON ?
+                overrides[ attrKey ] = value && value.toJSON ?
                     value.toJSON() : value;
             }
 
@@ -105,19 +90,23 @@ const proxyOverrideAttibute = function ( Type, key ) {
             original.set( 'recurrenceOverrides', recurrenceOverrides );
         } else {
             overrides = this.get( 'overrides' );
-            if ( key in overrides ) {
+            if ( attrKey in overrides ) {
                 return Type.fromJSON ?
-                    Type.fromJSON( overrides[ key ] ) :
-                    overrides[ key ];
+                    Type.fromJSON( overrides[ attrKey ] ) :
+                    overrides[ attrKey ];
             }
             value = originalValue;
-            if ( value && mayPatch[ key ] ) {
+            if ( value && mayPatch[ attrKey ] ) {
                 for ( path in overrides ) {
-                    if ( path.indexOf( key ) === 0 ) {
+                    if ( path.indexOf( attrKey ) === 0 ) {
                         if ( value === originalValue ) {
-                            value = O.clone( originalValue );
+                            value = clone( originalValue );
                         }
-                        applyPatch( value, path, overrides[ path ] );
+                        applyPatch(
+                            value,
+                            path.slice( attrKey.length + 1 ),
+                            overrides[ path ]
+                        );
                     }
                 }
             }
@@ -130,9 +119,9 @@ const proxyAttribute = function ( _, key ) {
     return this.get( 'original' ).get( key );
 }.property().nocache();
 
-const CalendarEventOccurrence = O.Class({
+const CalendarEventOccurrence = Class({
 
-    Extends: O.Object,
+    Extends: Obj,
 
     constructor: CalendarEvent,
 
@@ -142,7 +131,7 @@ const CalendarEventOccurrence = O.Class({
     isEditable: CalendarEvent.prototype.isEditable,
     isInvitation: CalendarEvent.prototype.isInvitation,
 
-    overrides: O.bind( null, 'original*recurrenceOverrides',
+    overrides: bind( null, 'original*recurrenceOverrides',
     function ( recurrenceOverrides ) {
         var id = this.toObject.id;
         return recurrenceOverrides && recurrenceOverrides[ id ] || {};
@@ -185,8 +174,8 @@ const CalendarEventOccurrence = O.Class({
         var recurrenceOverrides = original.get( 'recurrenceOverrides' );
 
         recurrenceOverrides = recurrenceOverrides ?
-            O.clone( recurrenceOverrides ) : {};
-        recurrenceOverrides[ this.id ] = null;
+            clone( recurrenceOverrides ) : {};
+        recurrenceOverrides[ this.id ] = { excluded: true };
         original.set( 'recurrenceOverrides', recurrenceOverrides );
 
         this.unload();
@@ -209,6 +198,8 @@ const CalendarEventOccurrence = O.Class({
 
     // May not edit calendar prop.
     calendar: proxyAttribute,
+
+    '@type': 'jsevent',
     uid: proxyAttribute,
     relatedTo: proxyAttribute,
     prodId: proxyAttribute,
@@ -222,18 +213,6 @@ const CalendarEventOccurrence = O.Class({
     title: proxyOverrideAttibute( String, 'title' ),
     description: proxyOverrideAttibute( String, 'description' ),
 
-    links: proxyOverrideAttibute( Object, 'links' ),
-
-    isUploading: CalendarEvent.prototype.isUploading,
-    files: CalendarEvent.prototype.files,
-    addFile: CalendarEvent.prototype.addFile,
-    removeFile: CalendarEvent.prototype.removeFile,
-
-    // ---
-
-    // locale: proxyOverrideAttibute( String, 'locale' ),
-    // localizations: proxyOverrideAttibute( Object, 'localizations' ),
-
     // ---
 
     locations: proxyOverrideAttibute( Object, 'locations' ),
@@ -243,12 +222,25 @@ const CalendarEventOccurrence = O.Class({
 
     // ---
 
+    links: proxyOverrideAttibute( Object, 'links' ),
+
+    // ---
+
+    // locale: attr( String ),
+    // localizations: attr( Object ),
+
+    // keywords: attr( Array ),
+    // categories: attr( Array ),
+    // color: attr( String ),
+
+    // ---
+
     isAllDay: proxyAttribute,
 
     start: proxyOverrideAttibute( Date, 'start' ),
     duration: proxyOverrideAttibute( JMAP.Duration, 'duration' ),
-    timeZone: proxyOverrideAttibute( O.TimeZone, 'timeZone' ),
-    recurrence: proxyAttribute,
+    timeZone: proxyOverrideAttibute( TimeZone, 'timeZone' ),
+    recurrenceRule: proxyAttribute,
     recurrenceOverrides: null,
 
     getStartInTimeZone: CalendarEvent.prototype.getStartInTimeZone,
@@ -267,14 +259,14 @@ const CalendarEventOccurrence = O.Class({
     index: function () {
         var start = this.get( 'start' );
         var original = this.get( 'original' );
-        return O.isEqual( start, original.get( 'start' ) ) ? 0 :
+        return isEqual( start, original.get( 'start' ) ) ? 0 :
             original.get( 'allStartDates' ).binarySearch( this._start );
     }.property().nocache(),
 
     // ---
 
-    status: proxyOverrideAttibute( String, 'status' ),
-    showAsFree: proxyOverrideAttibute( Boolean, 'showAsFree' ),
+    scheduleStatus: proxyOverrideAttibute( String, 'scheduleStatus', 'status' ),
+    freeBusyStatus: proxyOverrideAttibute( String, 'freeBusyStatus' ),
     replyTo: proxyAttribute,
     participants: proxyOverrideAttibute( Object, 'participants' ),
     participantId: proxyAttribute,
@@ -301,10 +293,13 @@ const CalendarEventOccurrence = O.Class({
     // ---
 
     useDefaultAlerts: proxyOverrideAttibute( Boolean, 'useDefaultAlerts' ),
-    alerts: proxyOverrideAttibute( Object, 'alerts' )
+    alerts: proxyOverrideAttibute( Object, 'alerts' ),
 });
-O.meta( CalendarEventOccurrence.prototype ).attrs =
-    O.meta( CalendarEvent.prototype ).attrs;
+
+meta( CalendarEventOccurrence.prototype ).attrs =
+    meta( CalendarEvent.prototype ).attrs;
+
+// --- Export
 
 JMAP.CalendarEventOccurrence = CalendarEventOccurrence;
 

@@ -1,7 +1,7 @@
 // -------------------------------------------------------------------------- \\
 // File: connections.js                                                       \\
 // Module: API                                                                \\
-// Requires: Connection.js                                                    \\
+// Requires: Auth.js, Connection.js                                           \\
 // -------------------------------------------------------------------------- \\
 
 /*global O, JMAP */
@@ -10,40 +10,74 @@
 
 ( function ( JMAP ) {
 
-JMAP.upload = new O.IOQueue({
+const IOQueue = O.IOQueue;
+const AggregateSource = O.AggregateSource;
+const Store = O.Store;
+
+const Connection = JMAP.Connection;
+const auth = JMAP.auth;
+
+// ---
+
+const upload = new IOQueue({
     maxConnections: 3
 });
 
-JMAP.source = new O.AggregateSource({
-    sources: [
-        JMAP.mail = new JMAP.Connection({
-            id: 'mail'
-        }),
-        JMAP.contacts = new JMAP.Connection({
-            id: 'contacts'
-        }),
-        JMAP.calendar = new JMAP.Connection({
-            id: 'calendar'
-        }),
-        JMAP.peripheral = new JMAP.Connection({
-            id: 'peripheral'
-        })
-    ],
+const mail = new Connection({
+    id: 'mail',
+});
+const contacts = new Connection({
+    id: 'contacts',
+});
+const calendar = new Connection({
+    id: 'calendar',
+});
+const peripheral = new Connection({
+    id: 'peripheral',
+});
 
+const source = new AggregateSource({
+    sources: [ mail, contacts, calendar, peripheral ],
     hasInFlightChanges: function () {
         return this.sources.some( function ( source ) {
             var inFlightRemoteCalls = source.get( 'inFlightRemoteCalls' );
             return inFlightRemoteCalls && inFlightRemoteCalls.some(
                 function ( req ) {
                     var method = req[0];
-                    return method.slice( 0, 3 ) !== 'get';
+                    var type = method.slice( method.indexOf( '/' ) + 1 );
+                    return type !== 'get' && type !== 'changes' &&
+                        type !== 'query' && type !== 'queryChanges';
                 });
-        }) || !!JMAP.upload.get( 'activeConnections' );
+        }) || !!upload.get( 'activeConnections' );
     },
 });
 
-JMAP.store = new O.Store({
-    source: JMAP.source
+const store = new Store({
+    source: source,
+    updateAccounts: function () {
+        const accounts = auth.get( 'accounts' );
+        const primaryMailAccountId =
+            auth.get( 'primaryAccounts' )[ auth.MAIL_DATA ];
+        var accountId, account;
+        for ( accountId in accounts ) {
+            account = accounts[ accountId ];
+            this.addAccount( accountId, {
+                isDefault: accountId === primaryMailAccountId,
+                hasDataFor: account.hasDataFor,
+            });
+        }
+    }
 });
+auth.addObserverForKey( 'accounts', store, 'updateAccounts' );
+
+// --- Export
+
+JMAP.upload = upload;
+JMAP.mail = mail;
+JMAP.contacts = contacts;
+JMAP.calendar = calendar;
+JMAP.peripheral = peripheral;
+JMAP.source = source;
+JMAP.store = store;
 
 }( JMAP ) );

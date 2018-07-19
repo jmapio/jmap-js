@@ -10,10 +10,16 @@
 
 ( function ( JMAP, undefined ) {
 
-const Record = O.Record,
-    attr = Record.attr;
+const loc = O.loc;
+const Class = O.Class;
+const Record = O.Record;
+const attr = Record.attr;
+const ValidationError = O.ValidationError;
+const DESTROYED = O.Status.DESTROYED;
 
-const Calendar = O.Class({
+// ---
+
+const Calendar = Class({
 
     Extends: Record,
 
@@ -21,8 +27,8 @@ const Calendar = O.Class({
         defaultValue: '',
         validate: function ( propValue/*, propKey, record*/ ) {
             if ( !propValue ) {
-                return new O.ValidationError( O.ValidationError.REQUIRED,
-                    O.loc( 'S_LABEL_REQUIRED' )
+                return new ValidationError( ValidationError.REQUIRED,
+                    loc( 'S_LABEL_REQUIRED' )
                 );
             }
             return null;
@@ -42,12 +48,12 @@ const Calendar = O.Class({
     }),
 
     cascadeChange: function ( _, key, oldValue, newValue ) {
-        var store = this.get( 'store' ),
-            calendarId = this.get( 'id' ),
-            property = 'calendar-' + key;
+        var store = this.get( 'store' );
+        var calendarSK = this.get( 'storeKey' );
+        var property = 'calendar-' + key;
         if ( !store.isNested ) {
             store.getAll( JMAP.CalendarEvent, function ( data ) {
-                return data.calendarId === calendarId;
+                return data.calendarId === calendarSK;
             }).forEach( function ( event ) {
                 if ( event.get( 'recurrenceRule' ) ||
                         event.get( 'recurrenceOverrides' ) ) {
@@ -65,14 +71,14 @@ const Calendar = O.Class({
     }.observes( 'name', 'color' ),
 
     calendarWasDestroyed: function () {
-        if ( this.get( 'status' ) === O.Status.DESTROYED ) {
+        if ( this.get( 'status' ) === DESTROYED ) {
             var store = this.get( 'store' );
-            var calendarStoreKey = this.get( 'storeKey' );
+            var calendarSK = this.get( 'storeKey' );
             if ( !store.isNested ) {
                 store.findAll( JMAP.CalendarEvent, function ( data ) {
-                    return data.calendarId === calendarStoreKey;
+                    return data.calendarId === calendarSK;
                 }).forEach( function ( storeKey ) {
-                    store.setStatus( storeKey, O.Status.DESTROYED )
+                    store.setStatus( storeKey, DESTROYED )
                          .unloadRecord( storeKey );
                 });
             }
@@ -115,64 +121,46 @@ const Calendar = O.Class({
                 this.get( 'mayRemoveItems' );
         }
         return mayWrite;
-    }.property( 'mayAddItems', 'mayModifyItems', 'mayRemoveItems' )
+    }.property( 'mayAddItems', 'mayModifyItems', 'mayRemoveItems' ),
 });
+Calendar.__guid__ = 'Calendar';
+Calendar.dataGroup = 'urn:ietf:params:jmap:calendars';
 
 JMAP.calendar.handle( Calendar, {
 
     precedence: 1,
 
-    fetch: function ( ids ) {
-        this.callMethod( 'getCalendars', {
-            ids: ids || null,
-        });
-    },
-
-    refresh: function ( ids, state ) {
-        if ( ids ) {
-            this.callMethod( 'getCalendars', {
-                ids: ids,
-            });
-        } else {
-            this.callMethod( 'getCalendarUpdates', {
-                sinceState: state,
-                maxChanges: 100,
-            });
-            this.callMethod( 'getCalendars', {
-                '#ids': {
-                    resultOf: this.getPreviousMethodId(),
-                    path: '/changed',
-                },
-            });
-        }
-    },
-
-    commit: 'setCalendars',
+    fetch: 'Calendar',
+    refresh: 'Calendar',
+    commit: 'Calendar',
 
     // ---
 
-    calendars: function ( args, reqMethod, reqArgs ) {
+    'Calendar/get': function ( args, reqMethod, reqArgs ) {
         const isAll = ( reqArgs.ids === null );
         this.didFetch( Calendar, args, isAll );
     },
 
-    calendarUpdates: function ( args ) {
+    'Calendar/changes': function ( args ) {
         const hasDataForChanged = true;
         this.didFetchUpdates( Calendar, args, hasDataForChanged );
-        if ( args.hasMoreUpdates ) {
-            this.get( 'store' ).fetchAll( Calendar, true );
+        if ( args.hasMoreChanges ) {
+            this.get( 'store' ).fetchAll( args.accountId, Calendar, true );
         }
     },
 
-    error_getCalendarUpdates_cannotCalculateChanges: function () {
+    'error_Calendar/changes_cannotCalculateChanges': function ( _, __, reqArgs ) {
+        var accountId = reqArgs.accountId;
         // All our data may be wrong. Refetch everything.
-        this.fetchAllRecords( Calendar );
+        this.fetchAllRecords( accountId, Calendar );
     },
 
-    calendarsSet: function ( args ) {
+    'Calendar/set': function ( args ) {
         this.didCommit( Calendar, args );
-    }
+    },
 });
+
+// --- Export
 
 JMAP.Calendar = Calendar;
 

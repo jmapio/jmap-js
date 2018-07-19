@@ -10,8 +10,13 @@
 
 ( function ( JMAP ) {
 
+const meta = O.meta;
+const Class = O.Class;
+const ObservableArray = O.ObservableArray;
 const Record = O.Record;
 const READY = O.Status.READY;
+
+const Message = JMAP.Message;
 
 // ---
 
@@ -73,31 +78,31 @@ const size = function( property ) {
     }.property( 'messages' ).nocache();
 };
 
-const Thread = O.Class({
+const Thread = Class({
 
     Extends: Record,
 
     isEditable: false,
 
     messages: Record.toMany({
-        recordType: JMAP.Message,
-        key: 'messageIds'
+        recordType: Message,
+        key: 'emailIds',
     }),
 
     messagesInNotTrash: function () {
-        return new O.ObservableArray(
+        return new ObservableArray(
             this.get( 'messages' ).filter( isInNotTrash )
         );
     }.property(),
 
     messagesInTrash: function () {
-        return new O.ObservableArray(
+        return new ObservableArray(
             this.get( 'messages' ).filter( isInTrash )
          );
     }.property(),
 
     _setMessagesArrayContent: function () {
-        var cache = O.meta( this ).cache;
+        var cache = meta( this ).cache;
         var messagesInNotTrash = cache.messagesInNotTrash;
         var messagesInTrash = cache.messagesInTrash;
         if ( messagesInNotTrash ) {
@@ -126,8 +131,8 @@ const Thread = O.Class({
         var counts = {};
         this.get( 'messages' ).forEach( function ( message ) {
             message.get( 'mailboxes' ).forEach( function ( mailbox ) {
-                var id = mailbox.get( 'id' );
-                counts[ id ] = ( counts[ id ] ||  0 ) + 1;
+                var storeKey = mailbox.get( 'storeKey' );
+                counts[ storeKey ] = ( counts[ storeKey ] ||  0 ) + 1;
             });
         });
         return counts;
@@ -166,96 +171,106 @@ const Thread = O.Class({
     sendersInTrash: senders( 'messagesInTrash' ),
     sizeInTrash: size( 'messagesInTrash' )
 });
+Thread.__guid__ = 'Thread';
+Thread.dataGroup = 'urn:ietf:params:jmap:mail';
 
-JMAP.mail.threadUpdateFetchRecords = true;
-JMAP.mail.threadUpdateMaxChanges = 30;
+JMAP.mail.threadChangesMaxChanges = 50;
 JMAP.mail.handle( Thread, {
 
-    fetch: function ( ids ) {
-        this.callMethod( 'getThreads', {
-            ids: ids,
-        });
-        this.callMethod( 'getMessages', {
-            '#ids': {
-                resultOf: this.getPreviousMethodId(),
-                path: '/list/*/messageIds',
-            },
-            properties: JMAP.Message.headerProperties,
-        });
+    fetch: function ( accountId, ids ) {
+        // Called with ids == null if you try to refresh before we have any
+        // data loaded. Just ignore.
+        if ( ids ) {
+            this.callMethod( 'Thread/get', {
+                accountId: accountId,
+                ids: ids,
+            });
+            this.callMethod( 'Email/get', {
+                accountId: accountId,
+                '#ids': {
+                    resultOf: this.getPreviousMethodId(),
+                    name: 'Thread/get',
+                    path: '/list/*/emailIds',
+                },
+                properties: Message.headerProperties,
+            });
+        }
     },
 
-    refresh: function ( ids, state ) {
+    refresh: function ( accountId, ids, state ) {
         if ( ids ) {
-            this.callMethod( 'getThreads', {
+            this.callMethod( 'Thread/get', {
+                accountId: accountId,
                 ids: ids,
             });
         } else {
-            this.callMethod( 'getThreadUpdates', {
+            this.callMethod( 'Thread/changes', {
+                accountId: accountId,
                 sinceState: state,
-                maxChanges: this.threadUpdateMaxChanges,
+                maxChanges: this.threadChangesMaxChanges,
             });
-            if ( this.threadUpdateFetchRecords ) {
-                this.callMethod( 'getThreads', {
-                    '#ids': {
-                        resultOf: this.getPreviousMethodId(),
-                        path: '/changed',
-                    },
-                });
-            }
         }
     },
 
     //  ---
 
-    threads: function ( args ) {
+    'Thread/get': function ( args ) {
         this.didFetch( Thread, args );
     },
 
-    threadUpdates: function ( args ) {
-        const hasDataForChanged = this.threadUpdateFetchRecords;
-        this.didFetchUpdates( Thread, args, hasDataForChanged );
-        if ( !hasDataForChanged ) {
+    'Thread/changes': function ( args ) {
+        this.didFetchUpdates( Thread, args, false );
+        if ( args.updated && args.updated.length ) {
             this.recalculateAllFetchedWindows();
         }
-        if ( args.hasMoreUpdates ) {
-            const threadUpdateMaxChanges = this.threadUpdateMaxChanges;
-            if ( threadUpdateMaxChanges < 120 ) {
-                if ( threadUpdateMaxChanges === 30 ) {
-                    // Keep fetching updates, just without records
-                    this.threadUpdateFetchRecords = false;
-                    this.threadUpdateMaxChanges = 100;
+        if ( args.hasMoreChanges ) {
+            const threadChangesMaxChanges = this.threadChangesMaxChanges;
+            if ( threadChangesMaxChanges < 150 ) {
+                if ( threadChangesMaxChanges === 50 ) {
+                    this.threadChangesMaxChanges = 100;
                 } else {
-                    this.threadUpdateMaxChanges = 120;
+                    this.threadChangesMaxChanges = 150;
                 }
-                this.get( 'store' ).fetchAll( Thread, true );
+                this.get( 'store' ).fetchAll( args.accountId, Thread, true );
                 return;
             } else {
-                // We've fetched 250 updates and there's still more. Let's give
+                // We've fetched 300 updates and there's still more. Let's give
                 // up and reset.
                 this.response
                     .error_getThreadUpdates_cannotCalculateChanges
                     .call( this, args );
             }
         }
-        this.threadUpdateFetchRecords = true;
-        this.threadUpdateMaxChanges = 30;
+        this.threadChangesMaxChanges = 50;
     },
 
-    error_getThreadUpdates_cannotCalculateChanges: function (/* args */) {
+    'error_Thread/changes_cannotCalculateChanges': function ( _, __, reqArgs ) {
         var store = this.get( 'store' );
+        var accountId = reqArgs.accountId;
         // All our data may be wrong. Unload if possible, otherwise mark
         // obsolete.
         store.getAll( Thread ).forEach( function ( thread ) {
-            if ( !store.unloadRecord( thread.get( 'storeKey' ) ) ) {
-                thread.setObsolete();
+            if ( thread.get( 'accountId' ) === accountId ) {
+                if ( !store.unloadRecord( thread.get( 'storeKey' ) ) ) {
+                    thread.setObsolete();
+                }
             }
         });
         this.recalculateAllFetchedWindows();
         // Tell the store we're now in the new state.
         store.sourceDidFetchUpdates(
-            Thread, null, null, store.getTypeState( Thread ), '' );
+            accountId, Thread, null, null,
+            store.getTypeState( accountId, Thread ), ''
+        );
     },
 });
+
+// ---
+
+// Circular dependency
+Message.prototype.thread.Type = Thread;
+
+// --- Export
 
 JMAP.Thread = Thread;
 

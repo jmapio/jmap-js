@@ -10,14 +10,23 @@
 
 ( function ( JMAP ) {
 
+const loc = O.loc;
+const sortByProperties = O.sortByProperties;
+const Class = O.Class;
+const RecordArray = O.RecordArray;
+const LocalQuery = O.LocalQuery;
 const Record = O.Record;
 const attr = Record.attr;
-
 const ValidationError = O.ValidationError;
-const REQUIRED        = ValidationError.REQUIRED;
-const TOO_LONG        = ValidationError.TOO_LONG;
+const REQUIRED = ValidationError.REQUIRED;
+const TOO_LONG = ValidationError.TOO_LONG;
 
-const Mailbox = O.Class({
+const connection = JMAP.mail;
+const makeSetRequest = JMAP.Connection.makeSetRequest;
+
+// ---
+
+const Mailbox = Class({
 
     Extends: Record,
 
@@ -26,12 +35,12 @@ const Mailbox = O.Class({
         validate: function ( propValue/*, propKey, record*/ ) {
             if ( !propValue ) {
                 return new ValidationError( REQUIRED,
-                    O.loc( 'S_LABEL_REQUIRED' )
+                    loc( 'S_LABEL_REQUIRED' )
                 );
             }
             if ( propValue.length > 256 ) {
                 return new ValidationError( TOO_LONG,
-                    O.loc( 'S_MAIL_ERROR_MAX_CHARS', 256 )
+                    loc( 'S_MAIL_ERROR_MAX_CHARS', 256 )
                 );
             }
             return null;
@@ -41,7 +50,13 @@ const Mailbox = O.Class({
     parent: Record.toOne({
         // Type: Mailbox,
         key: 'parentId',
-        defaultValue: null
+        defaultValue: null,
+        willSet: function ( propValue, propKey, record ) {
+            if ( propValue ) {
+                record.set( 'accountId', propValue.get( 'accountId' ) );
+            }
+            return true;
+        },
     }),
 
     role: attr( String, {
@@ -54,38 +69,28 @@ const Mailbox = O.Class({
 
     // ---
 
-    mayReadItems: attr( Boolean, {
-        defaultValue: true,
-        noSync: true
-    }),
-    mayAddItems: attr( Boolean, {
-        defaultValue: true,
-        noSync: true
-    }),
-    mayRemoveItems: attr( Boolean, {
-        defaultValue: true,
-        noSync: true
-    }),
-    mayCreateChild: attr( Boolean, {
-        defaultValue: true,
-        noSync: true
-    }),
-    mayRename: attr( Boolean, {
-        defaultValue: true,
-        noSync: true
-    }),
-    mayDelete: attr( Boolean, {
-        defaultValue: true,
+    myRights: attr( Object, {
+        defaultValue: {
+            mayReadItems: true,
+            mayAddItems: true,
+            mayRemoveItems: true,
+            maySetSeen: true,
+            maySetKeywords: true,
+            mayCreateChild: true,
+            mayRename: true,
+            mayDelete: true,
+            maySubmit: true,
+        },
         noSync: true
     }),
 
     // ---
 
-    totalMessages: attr( Number, {
+    totalEmails: attr( Number, {
         defaultValue: 0,
         noSync: true
     }),
-    unreadMessages: attr( Number, {
+    unreadEmails: attr( Number, {
         defaultValue: 0,
         noSync: true
     }),
@@ -105,16 +110,18 @@ const Mailbox = O.Class({
     }.property( 'name' ),
 
     subfolders: function () {
-        var storeKey = this.get( 'storeKey' ),
-            store = this.get( 'store' );
+        var storeKey = this.get( 'storeKey' );
+        var store = this.get( 'store' );
+        var accountId = this.get( 'accountId' );
         return storeKey ?
             store.getAll( Mailbox,
                 function ( data ) {
-                    return data.parentId === storeKey;
+                    return data.accountId === accountId &&
+                        data.parentId === storeKey;
                 },
-                O.sortByProperties([ 'sortOrder', 'name' ])
+                sortByProperties([ 'sortOrder', 'name' ])
             ) :
-            new O.RecordArray( store, Mailbox, [] );
+            new RecordArray( store, Mailbox, [] );
     }.property().nocache(),
 
     depth: function () {
@@ -133,24 +140,26 @@ const Mailbox = O.Class({
     // ---
 
     moveTo: function ( dest, where ) {
-        var sub = ( where === 'sub' ),
-            parent = sub ? dest : dest.get( 'parent' ),
-            siblings = parent ?
+        var sub = ( where === 'sub' );
+        var parent = sub ? dest : dest.get( 'parent' );
+        var accountId = dest.get( 'accountId' );
+        var siblings = parent ?
                 parent.get( 'subfolders' ) :
-                this.get( 'store' ).getQuery( 'rootMailboxes', O.LocalQuery, {
+                this.get( 'store' ).getQuery( 'rootMailboxes-' + accountId,
+                LocalQuery, {
                     Type: Mailbox,
                     where: function ( data ) {
-                        return !data.parentId;
+                        return data.accountId === accountId && !data.parentId;
                     },
-                    sort: [ 'sortOrder', 'name' ]
-                }),
-            index = sub ? 0 :
-                siblings.indexOf( dest ) + ( where === 'next' ? 1 : 0 ),
-            prev = index ? siblings.getObjectAt( index - 1 ) : null,
-            next = siblings.getObjectAt( index ),
-            prevSortOrder = prev ? prev.get( 'sortOrder' ) : 0,
-            nextSortOrder = next ? next.get( 'sortOrder' ) : ( index + 2 ) * 32,
-            i, p, l, folder;
+                    sort: [ 'sortOrder', 'name' ],
+                });
+        var index = sub ? 0 :
+                siblings.indexOf( dest ) + ( where === 'next' ? 1 : 0 );
+        var prev = index ? siblings.getObjectAt( index - 1 ) : null;
+        var next = siblings.getObjectAt( index );
+        var prevSortOrder = prev ? prev.get( 'sortOrder' ) : 0;
+        var nextSortOrder = next ? next.get( 'sortOrder' ) : ( index + 2 ) * 32;
+        var i, p, l, folder;
 
         if ( nextSortOrder - prevSortOrder < 2 ) {
             for ( i = 0, p = 32, l = siblings.get( 'length' );
@@ -174,80 +183,134 @@ const Mailbox = O.Class({
 
     destroy: function () {
         // Check ACL
-        if ( this.get( 'mayDelete' ) ) {
+        if ( this.get( 'myRights' ).mayDelete ) {
             // Destroy dependent records
             this.get( 'subfolders' ).forEach( function ( folder ) {
                 folder.destroy();
             });
             Mailbox.parent.destroy.call( this );
         }
-    }
+    },
 });
+Mailbox.__guid__ = 'Mailbox';
+Mailbox.dataGroup = 'urn:ietf:params:jmap:mail';
 
 Mailbox.prototype.parent.Type = Mailbox;
 
-JMAP.mail.handle( Mailbox, {
+// ---
+
+connection.ignoreCountsForMailboxIds = null;
+connection.fetchIgnoredMailboxes = function () {
+    var idToMailbox = connection.ignoreCountsForMailboxIds;
+    if ( idToMailbox ) {
+        Object.values( idToMailbox ).forEach( function ( mailbox ) {
+            mailbox.fetch();
+        });
+    }
+    connection.ignoreCountsForMailboxIds = null;
+};
+
+// ---
+
+connection.handle( Mailbox, {
 
     precedence: 0,
 
-    fetch: function ( ids ) {
-        this.callMethod( 'getMailboxes', {
+    fetch: function ( accountId, ids ) {
+        this.callMethod( 'Mailbox/get', {
+            accountId: accountId,
             ids: ids || null,
         });
     },
 
-    refresh: function ( ids, state ) {
+    refresh: function ( accountId, ids, state ) {
+        var get = 'Mailbox/get';
         if ( ids ) {
-            this.callMethod( 'getMailboxes', {
+            this.callMethod( get, {
+                accountId: accountId,
                 ids: ids,
                 properties: [
-                    'totalMessages', 'unreadMessages',
+                    'totalEmails', 'unreadEmails',
                     'totalThreads', 'unreadThreads',
                 ],
             });
         } else {
-            this.callMethod( 'getMailboxUpdates', {
+            var changes = 'Mailbox/changes';
+            this.callMethod( changes, {
+                accountId: accountId,
                 sinceState: state,
             });
-            this.callMethod( 'getMailboxes', {
+            var methodId = this.getPreviousMethodId();
+            this.callMethod( get, {
+                accountId: accountId,
                 '#ids': {
-                    resultOf: this.getPreviousMethodId(),
-                    path: '/changed',
+                    resultOf: methodId,
+                    name: changes,
+                    path: '/created',
+                },
+            });
+            this.callMethod( get, {
+                accountId: accountId,
+                '#ids': {
+                    resultOf: methodId,
+                    name: changes,
+                    path: '/updated',
                 },
                 '#properties': {
-                    resultOf: this.getPreviousMethodId(),
-                    path: '/changedProperties',
+                    resultOf: methodId,
+                    name: changes,
+                    path: '/updatedProperties',
                 },
             });
         }
     },
 
-    commit: 'setMailboxes',
+    commit: function ( change ) {
+        var args = makeSetRequest( change, true );
+        args.onDestroyRemoveMessages = true;
+        this.callMethod( 'Mailbox/set', args );
+    },
 
     // ---
 
-    mailboxes: function ( args, _, reqArgs ) {
+    'Mailbox/get': function ( args, _, reqArgs ) {
         const isAll = ( reqArgs.ids === null );
+        const ignoreCounts = this.ignoreCountsForMailboxIds;
+        if ( ignoreCounts ) {
+            const accountId = args.accountId;
+            args.list.forEach( function ( item ) {
+                var mailbox = ignoreCounts[ accountId + '/' + item.id ];
+                if ( mailbox ) {
+                    item.totalThreads = mailbox.get( 'totalThreads' );
+                    item.unreadEmails = mailbox.get( 'unreadEmails' );
+                    item.totalEmails = mailbox.get( 'totalEmails' );
+                    item.unreadThreads = mailbox.get( 'unreadThreads' );
+                }
+            });
+        }
         this.didFetch( Mailbox, args, isAll );
     },
 
-    mailboxUpdates: function ( args ) {
+    'Mailbox/changes': function ( args ) {
         const hasDataForChanged = true;
         this.didFetchUpdates( Mailbox, args, hasDataForChanged );
-        if ( args.hasMoreUpdates ) {
-            this.get( 'store' ).fetchAll( Mailbox, true );
+        if ( args.hasMoreChanges ) {
+            this.get( 'store' ).fetchAll( args.accountId, Mailbox, true );
         }
     },
 
-    error_getMailboxUpdates_cannotCalculateChanges: function () {
+    'error_Mailbox/changes_cannotCalculateChanges': function ( _, __, reqArgs ) {
+        var accountId = reqArgs.accountId;
         // All our data may be wrong. Refetch everything.
-        this.fetchAllRecords( Mailbox );
+        this.fetchAllRecords( accountId, Mailbox );
     },
 
-    mailboxesSet: function ( args ) {
+    'Mailbox/set': function ( args ) {
         this.didCommit( Mailbox, args );
-    }
+    },
 });
+
+// --- Export
 
 JMAP.Mailbox = Mailbox;
 

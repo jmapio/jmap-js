@@ -9,109 +9,8 @@
 
 ( function ( JMAP ) {
 
-// --- Filtering ---
-
-const none = 1 << 15;
-
-const getMonth = function ( date, results ) {
-    results[0] = date.getUTCMonth();
-    results[1] = none;
-    results[2] = none;
-};
-const getDate = function ( date, results, total ) {
-    var daysInMonth = total || Date.getDaysInMonth(
-            date.getUTCMonth(), date.getUTCFullYear() ) + 1;
-    results[0] = date.getUTCDate();
-    results[1] = results[0] - daysInMonth;
-    results[2] = none;
-};
-const getDay = function ( date, results ) {
-    results[0] = date.getUTCDay();
-    results[1] = none;
-    results[2] = none;
-};
-const getDayMonthly = function ( date, results, total ) {
-    var day = date.getUTCDay(),
-        monthDate = date.getUTCDate(),
-        occurrence = Math.floor( ( monthDate - 1 ) / 7 ) + 1,
-        daysInMonth = total || Date.getDaysInMonth(
-            date.getUTCMonth(), date.getUTCFullYear() ),
-        occurrencesInMonth = occurrence +
-            Math.floor( ( daysInMonth - monthDate ) / 7 );
-    results[0] = day;
-    results[1] = day + ( 7 * occurrence );
-    results[2] = day + ( 7 * ( occurrence - occurrencesInMonth - 1 ) );
-};
-const getDayYearly = function ( date, results, daysInYear ) {
-    var day = date.getUTCDay(),
-        dayOfYear = date.getDayOfYear( true ),
-        occurrence = Math.floor( ( dayOfYear - 1 ) / 7 ) + 1,
-        occurrencesInYear = occurrence +
-            Math.floor( ( daysInYear - dayOfYear ) / 7 );
-    results[0] = day;
-    results[1] = day + ( 7 * occurrence );
-    results[2] = day + ( 7 * ( occurrence - occurrencesInYear - 1 ) );
-};
-const getYearDay = function ( date, results, total ) {
-    results[0] = date.getDayOfYear( true );
-    results[1] = results[0] - total;
-    results[2] = none;
-};
-const getWeekNo = function ( firstDayOfWeek, date, results, total ) {
-    results[0] = date.getISOWeekNumber( firstDayOfWeek, true );
-    results[1] = results[0] - total;
-    results[2] = none;
-};
-const getPosition = function ( date, results, total, index ) {
-    results[0] = index + 1;
-    results[1] = index - total;
-    results[2] = none;
-};
-
-const filter = function ( array, getValues, allowedValues, total ) {
-    var l = array.length,
-        results = [ none, none, none ],
-        date, i, ll, a, b, c, allowed;
-    ll = allowedValues.length;
-    outer: while ( l-- ) {
-        date = array[l];
-        if ( date ) {
-            getValues( date, results, total, l );
-            a = results[0];
-            b = results[1];
-            c = results[2];
-            for ( i = 0; i < ll; i += 1 ) {
-                allowed = allowedValues[i];
-                if ( allowed === a || allowed === b || allowed === c ) {
-                    continue outer;
-                }
-            }
-            array[l] = null;
-        }
-    }
-};
-const expand = function ( array, property, values ) {
-    var l = array.length, ll = values.length,
-        i, j, k = 0,
-        results = new Array( l * ll ),
-        candidate, newCandidate;
-    for ( i = 0; i < l; i += 1 ) {
-        candidate = array[i];
-        for ( j = 0; j < ll; j += 1 ) {
-            if ( candidate ) {
-                newCandidate = new Date( candidate );
-                newCandidate[ property ]( values[j] );
-            } else {
-                newCandidate = null;
-            }
-            results[ k ] = newCandidate;
-            k += 1;
-        }
-    }
-    return results;
-};
-
 const toBoolean = O.Transform.toBoolean;
+const Class = O.Class;
 
 // ---
 
@@ -130,7 +29,7 @@ const frequencyNumbers = {
     daily: DAILY,
     hourly: HOURLY,
     minutely: MINUTELY,
-    secondly: SECONDLY
+    secondly: SECONDLY,
 };
 
 const dayToNumber = {
@@ -140,7 +39,7 @@ const dayToNumber = {
     we: 3,
     th: 4,
     fr: 5,
-    sa: 6
+    sa: 6,
 };
 
 const numberToDay = [
@@ -150,12 +49,304 @@ const numberToDay = [
     'we',
     'th',
     'fr',
-    'sa'
+    'sa',
 ];
 
 // ---
 
-const RecurrenceRule = O.Class({
+const none = 1 << 15;
+
+const getMonth = function ( date, results ) {
+    results[0] = date.getUTCMonth();
+    results[1] = none;
+    results[2] = none;
+};
+
+const getDate = function ( date, results, total ) {
+    var daysInMonth = total || Date.getDaysInMonth(
+            date.getUTCMonth(), date.getUTCFullYear() ) + 1;
+    results[0] = date.getUTCDate();
+    results[1] = results[0] - daysInMonth;
+    results[2] = none;
+};
+
+const getDay = function ( date, results ) {
+    results[0] = date.getUTCDay();
+    results[1] = none;
+    results[2] = none;
+};
+
+const getDayMonthly = function ( date, results, total ) {
+    var day = date.getUTCDay();
+    var monthDate = date.getUTCDate();
+    var occurrence = Math.floor( ( monthDate - 1 ) / 7 ) + 1;
+    var daysInMonth = total || Date.getDaysInMonth(
+            date.getUTCMonth(), date.getUTCFullYear() );
+    var occurrencesInMonth = occurrence +
+            Math.floor( ( daysInMonth - monthDate ) / 7 );
+    results[0] = day;
+    results[1] = day + ( 7 * occurrence );
+    results[2] = day + ( 7 * ( occurrence - occurrencesInMonth - 1 ) );
+};
+
+const getDayYearly = function ( date, results, daysInYear ) {
+    var day = date.getUTCDay();
+    var dayOfYear = date.getDayOfYear( true );
+    var occurrence = Math.floor( ( dayOfYear - 1 ) / 7 ) + 1;
+    var occurrencesInYear = occurrence +
+            Math.floor( ( daysInYear - dayOfYear ) / 7 );
+    results[0] = day;
+    results[1] = day + ( 7 * occurrence );
+    results[2] = day + ( 7 * ( occurrence - occurrencesInYear - 1 ) );
+};
+
+const getYearDay = function ( date, results, total ) {
+    results[0] = date.getDayOfYear( true );
+    results[1] = results[0] - total;
+    results[2] = none;
+};
+
+const getWeekNo = function ( firstDayOfWeek, date, results, total ) {
+    results[0] = date.getISOWeekNumber( firstDayOfWeek, true );
+    results[1] = results[0] - total;
+    results[2] = none;
+};
+
+const getPosition = function ( date, results, total, index ) {
+    results[0] = index + 1;
+    results[1] = index - total;
+    results[2] = none;
+};
+
+const filter = function ( array, getValues, allowedValues, total ) {
+    var l = array.length;
+    var results = [ none, none, none ];
+    var date, i, ll, a, b, c, allowed;
+    ll = allowedValues.length;
+    outer: while ( l-- ) {
+        date = array[l];
+        if ( date ) {
+            getValues( date, results, total, l );
+            a = results[0];
+            b = results[1];
+            c = results[2];
+            for ( i = 0; i < ll; i += 1 ) {
+                allowed = allowedValues[i];
+                if ( allowed === a || allowed === b || allowed === c ) {
+                    continue outer;
+                }
+            }
+            array[l] = null;
+        }
+    }
+};
+
+const expand = function ( array, property, values ) {
+    var l = array.length, ll = values.length;
+    var i, j, k = 0;
+    var results = new Array( l * ll );
+    var candidate, newCandidate;
+    for ( i = 0; i < l; i += 1 ) {
+        candidate = array[i];
+        for ( j = 0; j < ll; j += 1 ) {
+            if ( candidate ) {
+                newCandidate = new Date( candidate );
+                newCandidate[ property ]( values[j] );
+            } else {
+                newCandidate = null;
+            }
+            results[ k ] = newCandidate;
+            k += 1;
+        }
+    }
+    return results;
+};
+
+// Returns the next set of dates revolving around the interval defined by
+// the fromDate. This may include dates *before* the from date.
+const iterate = function ( fromDate,
+        frequency, interval, firstDayOfWeek,
+        byDay, byMonthDay, byMonth, byYearDay, byWeekNo,
+        byHour, byMinute, bySecond, bySetPosition ) {
+
+    var candidates = [];
+    var maxAttempts =
+        ( frequency === YEARLY ) ? 10 :
+        ( frequency === MONTHLY ) ? 24 :
+        ( frequency === WEEKLY ) ? 53 :
+        ( frequency === DAILY ) ? 366 :
+        ( frequency === HOURLY ) ? 48 :
+        /* MINUTELY || SECONDLY */ 120;
+    var useFastPath =
+        !byDay && !byMonthDay && !byMonth && !byYearDay && !byWeekNo;
+
+    var year, month, date, hour, minute, second;
+    var i, daysInMonth, offset, candidate, lastDayInYear, weeksInYear;
+
+    switch ( frequency ) {
+        case SECONDLY:
+            useFastPath = useFastPath && !bySecond;
+            /* falls through */
+        case MINUTELY:
+            useFastPath = useFastPath && !byMinute;
+            /* falls through */
+        case HOURLY:
+            useFastPath = useFastPath && !byHour;
+            break;
+    }
+
+    // It's possible to write rules which don't actually match anything.
+    // Limit the maximum number of cycles we are willing to pass through
+    // looking for a new candidate.
+    while ( maxAttempts-- ) {
+        year = fromDate.getUTCFullYear();
+        month = fromDate.getUTCMonth();
+        date = fromDate.getUTCDate();
+        hour = fromDate.getUTCHours();
+        minute = fromDate.getUTCMinutes();
+        second = fromDate.getUTCSeconds();
+
+        // Fast path
+        if ( useFastPath ) {
+            candidates.push( fromDate );
+        } else {
+            // 1. Build set of candidates.
+            switch ( frequency ) {
+            // We do the filtering of bySecond/byMinute/byHour in the
+            // candidate generation phase for SECONDLY, MINUTELY and HOURLY
+            // frequencies.
+            case SECONDLY:
+                if ( bySecond && bySecond.indexOf( second ) < 0 ) {
+                    break;
+                }
+                /* falls through */
+            case MINUTELY:
+                if ( byMinute && byMinute.indexOf( minute ) < 0 ) {
+                    break;
+                }
+                /* falls through */
+            case HOURLY:
+                if ( byHour && byHour.indexOf( hour ) < 0 ) {
+                    break;
+                }
+                lastDayInYear = new Date( Date.UTC(
+                    year, 11, 31, hour, minute, second
+                ));
+                /* falls through */
+            case DAILY:
+                candidates.push( new Date( Date.UTC(
+                    year, month, date, hour, minute, second
+                )));
+                break;
+            case WEEKLY:
+                offset = ( fromDate.getUTCDay() - firstDayOfWeek ).mod( 7 );
+                for ( i = 0; i < 7; i += 1 ) {
+                    candidates.push( new Date( Date.UTC(
+                        year, month, date - offset + i, hour, minute, second
+                    )));
+                }
+                break;
+            case MONTHLY:
+                daysInMonth = Date.getDaysInMonth( month, year );
+                for ( i = 1; i <= daysInMonth; i += 1 ) {
+                    candidates.push( new Date( Date.UTC(
+                        year, month, i, hour, minute, second
+                    )));
+                }
+                break;
+            case YEARLY:
+                candidate = new Date( Date.UTC(
+                    year, 0, 1, hour, minute, second
+                ));
+                lastDayInYear = new Date( Date.UTC(
+                    year, 11, 31, hour, minute, second
+                ));
+                while ( candidate <= lastDayInYear ) {
+                    candidates.push( candidate );
+                    candidate = new Date( +candidate + 86400000 );
+                }
+                break;
+            }
+
+            // 2. Apply restrictions and expansions
+            if ( byMonth ) {
+                filter( candidates, getMonth, byMonth );
+            }
+            if ( byMonthDay ) {
+                filter( candidates, getDate, byMonthDay,
+                    daysInMonth ? daysInMonth + 1 : 0
+                );
+            }
+            if ( byDay ) {
+                if ( frequency !== MONTHLY &&
+                        ( frequency !== YEARLY || byWeekNo ) ) {
+                    filter( candidates, getDay, byDay );
+                } else if ( frequency === MONTHLY || byMonth ) {
+                    // Filter candidates using position of day in month
+                    filter( candidates, getDayMonthly, byDay,
+                        daysInMonth || 0 );
+                } else {
+                    // Filter candidates using position of day in year
+                    filter( candidates, getDayYearly, byDay,
+                        Date.getDaysInYear( year ) );
+                }
+            }
+            if ( byYearDay ) {
+                filter( candidates, getYearDay, byYearDay,
+                    lastDayInYear.getDayOfYear( true ) + 1
+                );
+            }
+            if ( byWeekNo ) {
+                weeksInYear =
+                    lastDayInYear.getISOWeekNumber( firstDayOfWeek, true );
+                if ( weeksInYear === 1 ) {
+                    weeksInYear = 52;
+                }
+                filter( candidates, getWeekNo.bind( null, firstDayOfWeek ),
+                    byWeekNo,
+                    weeksInYear + 1
+                );
+            }
+        }
+        if ( byHour && frequency !== HOURLY &&
+                frequency !== MINUTELY && frequency !== SECONDLY ) {
+            candidates = expand( candidates, 'setUTCHours', byHour );
+        }
+        if ( byMinute &&
+                frequency !== MINUTELY && frequency !== SECONDLY ) {
+            candidates = expand( candidates, 'setUTCMinutes', byMinute );
+        }
+        if ( bySecond && frequency !== SECONDLY ) {
+            candidates = expand( candidates, 'setUTCSeconds', bySecond );
+        }
+        if ( bySetPosition ) {
+            candidates = candidates.filter( toBoolean );
+            filter( candidates, getPosition, bySetPosition, candidates.length );
+        }
+
+        // 3. Increment anchor by frequency/interval
+        fromDate = new Date( Date.UTC(
+            ( frequency === YEARLY ) ? year + interval : year,
+            ( frequency === MONTHLY ) ? month + interval : month,
+            ( frequency === WEEKLY ) ? date + 7 * interval :
+            ( frequency === DAILY ) ? date + interval : date,
+            ( frequency === HOURLY ) ? hour + interval : hour,
+            ( frequency === MINUTELY ) ? minute + interval : minute,
+            ( frequency === SECONDLY ) ? second + interval : second
+        ));
+
+        // 4. Do we have any candidates left?
+        candidates = candidates.filter( toBoolean );
+        if ( candidates.length ) {
+            return [ candidates, fromDate ];
+        }
+    }
+    return [ null, fromDate ];
+};
+
+// ---
+
+const RecurrenceRule = Class({
 
     init: function ( json ) {
         this.frequency = frequencyNumbers[ json.frequency ] || DAILY;
@@ -168,7 +359,7 @@ const RecurrenceRule = O.Class({
         this.byDay = json.byDay ? json.byDay.map( function ( nDay ) {
             return dayToNumber[ nDay.day ] + 7 * ( nDay.nthOfPeriod || 0 );
         }) : null;
-        this.byDate = json.byDate || null;
+        this.byMonthDay = json.byMonthDay || null;
         // Convert "1" (Jan), "2" (Feb) etc. to 0 (Jan), 1 (Feb)
         this.byMonth = json.byMonth ? json.byMonth.map( function ( month ) {
             return parseInt( month, 10 ) - 1;
@@ -184,8 +375,6 @@ const RecurrenceRule = O.Class({
 
         this.until = json.until ? Date.fromJSON( json.until ) : null;
         this.count = json.count || null;
-
-        this._isComplexAnchor = false;
     },
 
     toJSON: function () {
@@ -240,262 +429,32 @@ const RecurrenceRule = O.Class({
         return result;
     },
 
-    // Returns the next set of dates revolving around the interval defined by
-    // the fromDate. This may include dates *before* the from date.
-    iterate: function ( fromDate, startDate ) {
-        var frequency = this.frequency,
-            interval = this.interval,
-
-            firstDayOfWeek = this.firstDayOfWeek,
-
-            byDay = this.byDay,
-            byDate = this.byDate,
-            byMonth = this.byMonth,
-            byYearDay = this.byYearDay,
-            byWeekNo = this.byWeekNo,
-
-            byHour = this.byHour,
-            byMinute = this.byMinute,
-            bySecond = this.bySecond,
-
-            bySetPosition = this.bySetPosition,
-
-            candidates = [],
-            maxAttempts =
-                ( frequency === YEARLY ) ? 10 :
-                ( frequency === MONTHLY ) ? 24 :
-                ( frequency === WEEKLY ) ? 53 :
-                ( frequency === DAILY ) ? 366 :
-                ( frequency === HOURLY ) ? 48 :
-                /* MINUTELY || SECONDLY */ 120,
-            useFastPath, i, daysInMonth, offset, candidate, lastDayInYear,
-            weeksInYear, year, month, date, hour, minute, second;
-
-        // Check it's sane.
-        if ( interval < 1 ) {
-            throw new Error( 'RecurrenceRule: Cannot have interval < 1' );
-        }
-
-        // Ignore illegal restrictions:
-        if ( frequency !== YEARLY ) {
-            byWeekNo = null;
-        }
-        switch ( frequency ) {
-            case WEEKLY:
-                byDate = null;
-                /* falls through */
-            case DAILY:
-            case MONTHLY:
-                byYearDay = null;
-                break;
-        }
-
-        // Only fill-in-the-blanks cases not handled by the fast path.
-        if ( frequency === YEARLY ) {
-            if ( byDate && !byMonth && !byDay && !byYearDay && !byWeekNo ) {
-                if ( byDate.length === 1 &&
-                        byDate[0] === fromDate.getUTCDate() ) {
-                    byDate = null;
-                } else {
-                    byMonth = [ fromDate.getUTCMonth() ];
-                }
-            }
-            if ( byMonth && !byDate && !byDay && !byYearDay && !byWeekNo ) {
-                byDate = [ fromDate.getUTCDate() ];
-            }
-        }
-        if ( frequency === MONTHLY && byMonth && !byDate && !byDay ) {
-            byDate = [ fromDate.getUTCDate() ];
-        }
-        if ( frequency === WEEKLY && byMonth && !byDay ) {
-            byDay = [ fromDate.getUTCDay() ];
-        }
-
-        // Deal with monthly/yearly repetitions where the anchor may not exist
-        // in some cycles. Must not use fast path.
-        if ( this._isComplexAnchor &&
-                !byDay && !byDate && !byMonth && !byYearDay && !byWeekNo ) {
-            byDate = [ startDate.getUTCDate() ];
-            if ( frequency === YEARLY ) {
-                byMonth = [ startDate.getUTCMonth() ];
-            }
-        }
-
-        useFastPath = !byDay && !byDate && !byMonth && !byYearDay && !byWeekNo;
-        switch ( frequency ) {
-            case SECONDLY:
-                useFastPath = useFastPath && !bySecond;
-                /* falls through */
-            case MINUTELY:
-                useFastPath = useFastPath && !byMinute;
-                /* falls through */
-            case HOURLY:
-                useFastPath = useFastPath && !byHour;
-                break;
-        }
-
-        // It's possible to write rules which don't actually match anything.
-        // Limit the maximum number of cycles we are willing to pass through
-        // looking for a new candidate.
-        while ( maxAttempts-- ) {
-            year = fromDate.getUTCFullYear();
-            month = fromDate.getUTCMonth();
-            date = fromDate.getUTCDate();
-            hour = fromDate.getUTCHours();
-            minute = fromDate.getUTCMinutes();
-            second = fromDate.getUTCSeconds();
-
-            // Fast path
-            if ( useFastPath ) {
-                candidates.push( fromDate );
-            } else {
-                // 1. Build set of candidates.
-                switch ( frequency ) {
-                // We do the filtering of bySecond/byMinute/byHour in the
-                // candidate generation phase for SECONDLY, MINUTELY and HOURLY
-                // frequencies.
-                case SECONDLY:
-                    if ( bySecond && bySecond.indexOf( second ) < 0 ) {
-                        break;
-                    }
-                    /* falls through */
-                case MINUTELY:
-                    if ( byMinute && byMinute.indexOf( minute ) < 0 ) {
-                        break;
-                    }
-                    /* falls through */
-                case HOURLY:
-                    if ( byHour && byHour.indexOf( hour ) < 0 ) {
-                        break;
-                    }
-                    lastDayInYear = new Date( Date.UTC(
-                        year, 11, 31, hour, minute, second
-                    ));
-                    /* falls through */
-                case DAILY:
-                    candidates.push( new Date( Date.UTC(
-                        year, month, date, hour, minute, second
-                    )));
-                    break;
-                case WEEKLY:
-                    offset = ( fromDate.getUTCDay() - firstDayOfWeek ).mod( 7 );
-                    for ( i = 0; i < 7; i += 1 ) {
-                        candidates.push( new Date( Date.UTC(
-                            year, month, date - offset + i, hour, minute, second
-                        )));
-                    }
-                    break;
-                case MONTHLY:
-                    daysInMonth = Date.getDaysInMonth( month, year );
-                    for ( i = 1; i <= daysInMonth; i += 1 ) {
-                        candidates.push( new Date( Date.UTC(
-                            year, month, i, hour, minute, second
-                        )));
-                    }
-                    break;
-                case YEARLY:
-                    candidate = new Date( Date.UTC(
-                        year, 0, 1, hour, minute, second
-                    ));
-                    lastDayInYear = new Date( Date.UTC(
-                        year, 11, 31, hour, minute, second
-                    ));
-                    while ( candidate <= lastDayInYear ) {
-                        candidates.push( candidate );
-                        candidate = new Date( +candidate + 86400000 );
-                    }
-                    break;
-                }
-
-                // 2. Apply restrictions and expansions
-                if ( byMonth ) {
-                    filter( candidates, getMonth, byMonth );
-                }
-                if ( byDate ) {
-                    filter( candidates, getDate, byDate,
-                        daysInMonth ? daysInMonth + 1 : 0
-                    );
-                }
-                if ( byDay ) {
-                    if ( frequency !== MONTHLY &&
-                            ( frequency !== YEARLY || byWeekNo ) ) {
-                        filter( candidates, getDay, byDay );
-                    } else if ( frequency === MONTHLY || byMonth ) {
-                        // Filter candidates using position of day in month
-                        filter( candidates, getDayMonthly, byDay,
-                            daysInMonth || 0 );
-                    } else {
-                        // Filter candidates using position of day in year
-                        filter( candidates, getDayYearly, byDay,
-                            Date.getDaysInYear( year ) );
-                    }
-                }
-                if ( byYearDay ) {
-                    filter( candidates, getYearDay, byYearDay,
-                        lastDayInYear.getDayOfYear( true ) + 1
-                    );
-                }
-                if ( byWeekNo ) {
-                    weeksInYear =
-                        lastDayInYear.getISOWeekNumber( firstDayOfWeek, true );
-                    if ( weeksInYear === 1 ) {
-                        weeksInYear = 52;
-                    }
-                    filter( candidates, getWeekNo.bind( null, firstDayOfWeek ),
-                        byWeekNo,
-                        weeksInYear + 1
-                    );
-                }
-            }
-            if ( byHour && frequency !== HOURLY &&
-                    frequency !== MINUTELY && frequency !== SECONDLY ) {
-                candidates = expand( candidates, 'setUTCHours', byHour );
-            }
-            if ( byMinute &&
-                    frequency !== MINUTELY && frequency !== SECONDLY ) {
-                candidates = expand( candidates, 'setUTCMinutes', byMinute );
-            }
-            if ( bySecond && frequency !== SECONDLY ) {
-                candidates = expand( candidates, 'setUTCSeconds', bySecond );
-            }
-            if ( bySetPosition ) {
-                candidates = candidates.filter( toBoolean );
-                filter( candidates, getPosition, bySetPosition,
-                    candidates.length );
-            }
-
-            // 3. Increment anchor by frequency/interval
-            fromDate = new Date( Date.UTC(
-                ( frequency === YEARLY ) ? year + interval : year,
-                ( frequency === MONTHLY ) ? month + interval : month,
-                ( frequency === WEEKLY ) ? date + 7 * interval :
-                ( frequency === DAILY ) ? date + interval : date,
-                ( frequency === HOURLY ) ? hour + interval : hour,
-                ( frequency === MINUTELY ) ? minute + interval : minute,
-                ( frequency === SECONDLY ) ? second + interval : second
-            ));
-
-            // 4. Do we have any candidates left?
-            candidates = candidates.filter( toBoolean );
-            if ( candidates.length ) {
-                return [ candidates, fromDate ];
-            }
-        }
-        return [ null, fromDate ];
-    },
-
     // start = Date recurrence starts (should be first occurrence)
     // begin = Beginning of time period to return occurrences within
     // end = End of time period to return occurrences within
     getOccurrences: function ( start, begin, end ) {
-        var frequency = this.frequency,
-            count = this.count || 0,
-            until = this.until,
-            results = [],
-            interval, year, month, date, isComplexAnchor,
-            beginYear, beginMonth,
-            anchor, temp, occurrences, occurrence, i, l;
+        var frequency = this.frequency;
+        var count = this.count || 0;
+        var until = this.until;
+        var interval = this.interval;
+        var firstDayOfWeek = this.firstDayOfWeek;
+        var byDay = this.byDay;
+        var byMonthDay = this.byMonthDay;
+        var byMonth = this.byMonth;
+        var byYearDay = this.byYearDay;
+        var byWeekNo = this.byWeekNo;
+        var byHour = this.byHour;
+        var byMinute = this.byMinute;
+        var bySecond = this.bySecond;
+        var bySetPosition = this.bySetPosition;
 
+        var results = [];
+        var periodLengthInMS = interval;
+        var year, month, date;
+        var beginYear, beginMonth;
+        var isComplexAnchor, anchor, temp, occurrences, occurrence, i, l;
+
+        // Make sure we have a start date, and make sure it will terminate
         if ( !start ) {
             start = new Date();
         }
@@ -521,8 +480,65 @@ const RecurrenceRule = O.Class({
         year = start.getUTCFullYear();
         month = start.getUTCMonth();
         date = start.getUTCDate();
-        isComplexAnchor = this._isComplexAnchor = date > 28 &&
+        isComplexAnchor = date > 28 &&
             ( frequency === MONTHLY || (frequency === YEARLY && month === 1) );
+
+        // Check it's sane.
+        if ( interval < 1 ) {
+            interval = 1;
+        }
+
+        // Ignore illegal restrictions:
+        if ( frequency !== YEARLY ) {
+            byWeekNo = null;
+        }
+        switch ( frequency ) {
+            case WEEKLY:
+                byMonthDay = null;
+                /* falls through */
+            case DAILY:
+            case MONTHLY:
+                byYearDay = null;
+                break;
+        }
+
+        // Only inherit-from-start cases not handled by the fast path.
+        if ( frequency === YEARLY && !byYearDay ) {
+            if ( !byWeekNo ) {
+                if ( byMonthDay && !byMonth ) {
+                    if ( !byDay && byMonthDay.length === 1 &&
+                            byMonthDay[0] === date ) {
+                        // This is actually just a standard FREQ=YEARLY
+                        // recurrence expressed inefficiently; put it back on
+                        // the fast path
+                        byMonthDay = null;
+                    } else {
+                        byMonth = [ month ];
+                    }
+                }
+                if ( byMonth && !byDay && !byMonthDay ) {
+                    byMonthDay = [ date ];
+                }
+            } else if ( !byDay && !byMonthDay ) {
+                byDay = [ start.getUTCDay() ];
+            }
+        }
+        if ( frequency === MONTHLY && byMonth && !byMonthDay && !byDay ) {
+            byMonthDay = [ date ];
+        }
+        if ( frequency === WEEKLY && byMonth && !byDay ) {
+            byDay = [ start.getUTCDay() ];
+        }
+
+        // Deal with monthly/yearly repetitions where the anchor may not exist
+        // in some cycles. Must not use fast path.
+        if ( isComplexAnchor &&
+                !byDay && !byMonthDay && !byMonth && !byYearDay && !byWeekNo ) {
+            byMonthDay = [ date ];
+            if ( frequency === YEARLY ) {
+                byMonth = [ month ];
+            }
+        }
 
         // Must always iterate from the start if there's a count
         if ( count || begin === start ) {
@@ -532,7 +548,6 @@ const RecurrenceRule = O.Class({
             }
         } else {
             // Find first anchor before or equal to "begin" date.
-            interval = this.interval;
             switch ( frequency ) {
             case YEARLY:
                 // Get year of range begin.
@@ -557,20 +572,21 @@ const RecurrenceRule = O.Class({
                 }
                 break;
             case WEEKLY:
-                interval *= 7;
+                periodLengthInMS *= 7;
                 /* falls through */
             case DAILY:
-                interval *= 24;
+                periodLengthInMS *= 24;
                 /* falls through */
             case HOURLY:
-                interval *= 60;
+                periodLengthInMS *= 60;
                 /* falls through */
             case MINUTELY:
-                interval *= 60;
+                periodLengthInMS *= 60;
                 /* falls through */
             case SECONDLY:
-                interval *= 1000;
-                anchor = new Date( begin - ( ( begin - start ) % interval ) );
+                periodLengthInMS *= 1000;
+                anchor = new Date( begin -
+                    ( ( begin - start ) % periodLengthInMS ) );
                 break;
             }
         }
@@ -604,7 +620,10 @@ const RecurrenceRule = O.Class({
         }
 
         outer: while ( true ) {
-            temp = this.iterate( anchor, start );
+            temp = iterate( anchor,
+                frequency, interval, firstDayOfWeek,
+                byDay, byMonthDay, byMonth, byYearDay, byWeekNo,
+                byHour, byMinute, bySecond, bySetPosition );
             occurrences = temp[0];
             if ( !occurrences ) {
                 break;
@@ -638,15 +657,25 @@ const RecurrenceRule = O.Class({
     matches: function ( start, date ) {
         return !!this.getOccurrences( start, date, new Date( +date + 1000 ) )
                      .length;
-    }
+    },
 });
 
 RecurrenceRule.dayToNumber = dayToNumber;
 RecurrenceRule.numberToDay = numberToDay;
 
+RecurrenceRule.YEARLY = YEARLY;
+RecurrenceRule.MONTHLY = MONTHLY;
+RecurrenceRule.WEEKLY = WEEKLY;
+RecurrenceRule.DAILY = DAILY;
+RecurrenceRule.HOURLY = HOURLY;
+RecurrenceRule.MINUTELY = MINUTELY;
+RecurrenceRule.SECONDLY = SECONDLY;
+
 RecurrenceRule.fromJSON = function ( recurrenceRuleJSON ) {
     return new RecurrenceRule( recurrenceRuleJSON );
 };
+
+// --- Export
 
 JMAP.RecurrenceRule = RecurrenceRule;
 

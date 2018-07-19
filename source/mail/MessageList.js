@@ -4,64 +4,55 @@
 // Requires: API, Message.js, Thread.js                                       \\
 // -------------------------------------------------------------------------- \\
 
-/*global O, JMAP, JSON */
+/*global O, JMAP */
 
 'use strict';
 
 ( function ( JMAP, undefined ) {
 
+const Class = O.Class;
+const WindowedQuery = O.WindowedQuery;
 const isEqual = O.isEqual;
 const Status = O.Status;
 const EMPTY = Status.EMPTY;
 const READY = Status.READY;
 const OBSOLETE = Status.OBSOLETE;
+const LOADING = Status.LOADING;
 
+const getQueryId = JMAP.getQueryId;
 const Message = JMAP.Message;
-const Thread = JMAP.Thread;
 
 // ---
 
-const isFetched = function ( message ) {
-    return !message.is( EMPTY|OBSOLETE );
+const statusIsFetched = function ( status ) {
+    return ( status & READY ) &&
+        ( !( status & OBSOLETE ) || ( status & LOADING ) );
 };
-const refresh = function ( record ) {
-    if ( record.is( OBSOLETE ) ) {
+const isFetched = function ( record ) {
+    return statusIsFetched( record.get( 'status' ) );
+};
+const refreshIfNeeded = function ( record ) {
+    const status = record.get( 'status' );
+    if ( ( status & OBSOLETE ) && !( status & LOADING ) ) {
         record.fetch();
     }
 };
 
 const EMPTY_SNIPPET = {
-    body: ' '
-};
-
-const stringifySorted = function ( item ) {
-    if ( !item || ( typeof item !== 'object' ) ) {
-        return JSON.stringify( item );
-    }
-    if ( item instanceof Array ) {
-        return '[' + item.map( stringifySorted ).join( ',' ) + ']';
-    }
-    var keys = Object.keys( item );
-    keys.sort();
-    return '{' + keys.map( function ( key ) {
-        return '"' + key + '":' + stringifySorted( item[ key ] );
-    }).join( ',' ) + '}';
+    body: ' ',
 };
 
 const getId = function ( args ) {
-    return 'MessageList:' + (
-        stringifySorted( args.where || args.filter ) +
-        JSON.stringify( args.sort )
-    ).hash().toString() + ( args.collapseThreads ? '+' : '-' );
+    return getQueryId( Message, args ) + ( args.collapseThreads ? '+' : '-' );
 };
 
-const MessageList = O.Class({
+const MessageList = Class({
 
-    Extends: O.WindowedQuery,
+    Extends: WindowedQuery,
 
     optimiseFetching: true,
 
-    sort: [ 'date desc' ],
+    sort: [{ property: 'receivedAt', isAscending: false }],
     collapseThreads: true,
 
     Type: Message,
@@ -81,19 +72,19 @@ const MessageList = O.Class({
         var i = index * windowSize;
         var l = Math.min( i + windowSize, this.get( 'length' ) );
         var collapseThreads = this.get( 'collapseThreads' );
-        var messageSK, threadId, threadSK, thread;
+        var messageSK, threadSK, thread;
         for ( ; i < l; i += 1 ) {
             messageSK = storeKeys[i];
             // No message, or out-of-date
-            if ( store.getStatus( messageSK ) & (EMPTY|OBSOLETE) ) {
+            if ( !statusIsFetched( store.getStatus( messageSK ) ) ) {
                 return false;
             }
             if ( collapseThreads ) {
-                threadId = store.getRecordFromStoreKey( messageSK )
-                                .get( 'threadId' );
-                threadSK = store.getStoreKey( Thread, threadId );
+                threadSK = store.getRecordFromStoreKey( messageSK )
+                                .getData()
+                                .threadId;
                 // No thread, or out-of-date
-                if ( store.getStatus( threadSK ) & (EMPTY|OBSOLETE) ) {
+                if ( !statusIsFetched( store.getStatus( threadSK ) ) ) {
                     return false;
                 }
                 thread = store.getRecordFromStoreKey( threadSK );
@@ -137,15 +128,18 @@ const MessageList = O.Class({
                         thread = store.getRecordFromStoreKey( messageSK )
                                       .get( 'thread' );
                         // If already fetched, fetch the updates
-                        refresh( thread );
-                        thread.get( 'messages' ).forEach( refresh );
+                        refreshIfNeeded( thread );
+                        thread.get( 'messages' ).forEach( refreshIfNeeded );
                     } else {
-                        JMAP.mail.fetchRecord( Message.Thread,
-                            store.getIdFromStoreKey( messageSK ) );
+                        JMAP.mail.fetchRecord(
+                            store.getAccountIdFromStoreKey( messageSK ),
+                            Message.Thread,
+                            store.getIdFromStoreKey( messageSK )
+                        );
                     }
                 } else {
                     message = store.getRecordFromStoreKey( messageSK );
-                    refresh( message );
+                    refreshIfNeeded( message );
                 }
             }
             req.start = i;
@@ -158,69 +152,104 @@ const MessageList = O.Class({
 
     // --- Snippets ---
 
-    sourceDidFetchSnippets: function ( snippets ) {
+    sourceDidFetchSnippets: function ( accountId, snippets ) {
         var store = this.get( 'store' );
         var l = snippets.length;
-        var snippet, messageId;
+        var snippet, emailId;
         while ( l-- ) {
             snippet = snippets[l];
-            messageId = snippet.messageId;
-            this._snippets[ messageId ] = snippet;
-            if ( store.getRecordStatus( Message, messageId ) & READY ) {
+            emailId = snippet.emailId;
+            this._snippets[ emailId ] = snippet;
+            if ( store.getRecordStatus(
+                    accountId, Message, emailId ) & READY ) {
                 // There is no "snippet" property, but this triggers the
                 // observers of * property changes on the object.
-                store.getRecord( Message, messageId )
+                store.getRecord( accountId, Message, emailId )
                      .propertyDidChange( 'snippet' );
             }
         }
     },
 
-    getSnippet: function ( messageId ) {
-        var snippet = this._snippets[ messageId ];
+    getSnippet: function ( emailId ) {
+        var snippet = this._snippets[ emailId ];
         if ( !snippet ) {
-            this._snippetsNeeded.push( messageId );
-            this._snippets[ messageId ] = snippet = EMPTY_SNIPPET;
+            this._snippetsNeeded.push( emailId );
+            this._snippets[ emailId ] = snippet = EMPTY_SNIPPET;
             this.fetchSnippets();
         }
         return snippet;
     },
 
     fetchSnippets: function () {
-        JMAP.mail.callMethod( 'getSearchSnippets', {
-            messageIds: this._snippetsNeeded,
+        JMAP.mail.callMethod( 'SearchSnippet/get', {
+            accountId: this.get( 'accountId' ),
+            emailIds: this._snippetsNeeded,
             filter: this.get( 'where' ),
-            // Not part of the getSearchSnippets call, but needed to identify
-            // this list again to give the response to.
-            collapseThreads: this.get( 'collapseThreads' )
         });
         this._snippetsNeeded = [];
     }.queue( 'after' )
 });
+MessageList.getId = getId;
 
 JMAP.mail.handle( MessageList, {
     query: function ( query ) {
+        var accountId = query.get( 'accountId' );
         var where = query.get( 'where' );
         var sort = query.get( 'sort' );
         var collapseThreads = query.get( 'collapseThreads' );
         var canGetDeltaUpdates = query.get( 'canGetDeltaUpdates' );
-        var state = query.get( 'state' );
+        var queryState = query.get( 'queryState' );
         var request = query.sourceWillFetchQuery();
         var hasMadeRequest = false;
 
-        if ( canGetDeltaUpdates && state && request.refresh ) {
+        var fetchThreads = function () {
+            this.callMethod( 'Thread/get', {
+                accountId: accountId,
+                '#ids': {
+                    resultOf: this.getPreviousMethodId(),
+                    name: 'Email/get',
+                    path: '/list/*/threadId',
+                },
+            });
+            this.callMethod( 'Email/get', {
+                accountId: accountId,
+                '#ids': {
+                    resultOf: this.getPreviousMethodId(),
+                    name: 'Thread/get',
+                    path: '/list/*/emailIds',
+                },
+                properties: Message.headerProperties,
+            });
+        }.bind( this );
+
+        if ( canGetDeltaUpdates && queryState && request.refresh ) {
             var storeKeys = query.getStoreKeys();
             var length = storeKeys.length;
-            var upto = ( length === query.get( 'length' ) ) ?
+            var upToId = ( length === query.get( 'length' ) ) ?
                     undefined : storeKeys[ length - 1 ];
-            this.callMethod( 'getMessageListUpdates', {
+            this.callMethod( 'Email/queryChanges', {
+                accountId: accountId,
                 filter: where,
                 sort: sort,
                 collapseThreads: collapseThreads,
-                sinceState: state,
-                uptoId: upto ?
-                    this.get( 'store' ).getIdFromStoreKey( upto ) : null,
-                maxChanges: 250,
+                sinceQueryState: queryState,
+                upToId: upToId ?
+                    this.get( 'store' ).getIdFromStoreKey( upToId ) : null,
+                maxChanges: 25,
             });
+            this.callMethod( 'Email/get', {
+                accountId: accountId,
+                '#ids': {
+                    resultOf: this.getPreviousMethodId(),
+                    name: 'Email/queryChanges',
+                    path: '/added/*/id',
+                },
+                properties: collapseThreads ?
+                    [ 'threadId' ] : Message.headerProperties,
+            });
+            if ( collapseThreads ) {
+                fetchThreads();
+            }
         }
 
         if ( request.callback ) {
@@ -229,7 +258,8 @@ JMAP.mail.handle( MessageList, {
 
         var get = function ( start, count, anchor, offset, fetchData ) {
             hasMadeRequest = true;
-            this.callMethod( 'getMessageList', {
+            this.callMethod( 'Email/query', {
+                accountId: accountId,
                 filter: where,
                 sort: sort,
                 collapseThreads: collapseThreads,
@@ -239,28 +269,18 @@ JMAP.mail.handle( MessageList, {
                 limit: count,
             });
             if ( fetchData ) {
-                this.callMethod( 'getMessages', {
+                this.callMethod( 'Email/get', {
+                    accountId: accountId,
                     '#ids': {
                         resultOf: this.getPreviousMethodId(),
+                        name: 'Email/query',
                         path: '/ids',
                     },
                     properties: collapseThreads ?
                         [ 'threadId' ] : Message.headerProperties,
                 });
                 if ( collapseThreads ) {
-                    this.callMethod( 'getThreads', {
-                        '#ids': {
-                            resultOf: this.getPreviousMethodId(),
-                            path: '/list/*/threadId',
-                        },
-                    });
-                    this.callMethod( 'getMessages', {
-                        '#ids': {
-                            resultOf: this.getPreviousMethodId(),
-                            path: '/list/*/messageIds',
-                        },
-                        properties: Message.headerProperties
-                    });
+                    fetchThreads();
                 }
             }
         }.bind( this );
@@ -272,11 +292,11 @@ JMAP.mail.handle( MessageList, {
             get( req.start, req.count, undefined, undefined, true );
         });
         request.indexOf.forEach( function ( req ) {
-            get( undefined, 5, req[0], 1, false );
+            get( undefined, 1, req[0], 0, false );
             this.addCallback( req[1] );
         }, this );
 
-        if ( ( ( query.get( 'status' ) & O.Status.EMPTY ) &&
+        if ( ( ( query.get( 'status' ) & EMPTY ) &&
                 !request.records.length ) ||
              ( !canGetDeltaUpdates && !hasMadeRequest && request.refresh ) ) {
             get( 0, query.get( 'windowSize' ), undefined, undefined, true );
@@ -285,64 +305,50 @@ JMAP.mail.handle( MessageList, {
 
     // ---
 
-    messageList: function ( args ) {
-        args.filter = args.filter || null;
-        args.sort = args.sort || null;
-        args.idList = args.ids;
-
-        var store = this.get( 'store' );
-        var query = store.getQuery( getId( args ) );
-
+    'Email/query': function ( args ) {
+        const query = this.get( 'store' ).getQuery( getId( args ) );
         if ( query ) {
-            query.set( 'canGetDeltaUpdates', args.canCalculateUpdates );
-            query.sourceDidFetchIdList( args );
+            query.set( 'canGetDeltaUpdates', args.canCalculateChanges );
+            query.sourceDidFetchIds( args );
         }
     },
 
-    error_getMessageList_anchorNotFound: function (/* args */) {
-        // Don't need to do anything; it's only used for doing indexOf,
-        // and it will just check that it doesn't have it.
-    },
-
-    messageListUpdates: function ( args ) {
-        args.filter = args.filter || null;
-        args.sort = args.sort || null;
-        args.removed = args.removed || [];
-        args.added = args.added ? args.added.map( function ( item ) {
-            return [ item.index, item.id ];
-        }) : [];
-        args.upto = args.uptoId;
-
-        var store = this.get( 'store' );
-        var query = store.getQuery( getId( args ) );
-
+    'Email/queryChanges': function ( args ) {
+        const query = this.get( 'store' ).getQuery( getId( args ) );
         if ( query ) {
             query.sourceDidFetchUpdate( args );
         }
     },
 
-    error_getMessageListUpdates_cannotCalculateChanges: function ( _, __, requestArgs ) {
-        this.response.error_getMessageListUpdates_tooManyChanges
-            .call( this,  _, __, requestArgs );
-    },
-
-    error_getMessageListUpdates_tooManyChanges: function ( _, __, requestArgs ) {
-        var query = this.get( 'store' ).getQuery( getId( requestArgs ) );
-
+    'error_Email/queryChanges_cannotCalculateChanges': function ( _, __, reqArgs ) {
+        var query = this.get( 'store' ).getQuery( getId( reqArgs ) );
         if ( query ) {
             query.reset();
         }
     },
 
+    'error_Email/queryChanges_tooManyChanges': function ( _, __, reqArgs ) {
+        if ( reqArgs.maxChanges === 25 ) {
+            // Try again without fetching the emails
+            this.callMethod( 'Email/queryChanges', Object.assign( {}, reqArgs, {
+                maxChanges: 250,
+            }));
+        } else {
+            this.response[ 'error_Email/queryChanges_cannotCalculateChanges' ]
+                .call( this,  _, __, reqArgs );
+        }
+    },
+
     // ---
 
-    searchSnippets: function ( args ) {
+    'SearchSnippet/get': function ( args ) {
         var store = this.get( 'store' );
         var where = args.filter;
         var list = args.list;
+        var accountId = args.accountId;
         store.getAllQueries().forEach( function ( query ) {
             if ( isEqual( query.get( 'where' ), where ) ) {
-                query.sourceDidFetchSnippets( list );
+                query.sourceDidFetchSnippets( accountId, list );
             }
         });
     },
@@ -357,7 +363,7 @@ JMAP.mail.recalculateAllFetchedWindows = function () {
     });
 };
 
-MessageList.getId = getId;
+// --- Export
 
 JMAP.MessageList = MessageList;
 

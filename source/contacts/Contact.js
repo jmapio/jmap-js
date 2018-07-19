@@ -8,12 +8,20 @@
 
 'use strict';
 
-( function ( JMAP ) {
+( function ( JMAP, undefined ) {
 
+const Class = O.Class;
 const Record = O.Record;
 const attr = Record.attr;
+const sortByProperties = O.sortByProperties;
 
-const Contact = O.Class({
+const auth = JMAP.auth;
+const contacts = JMAP.contacts;
+const AmbiguousDate = JMAP.AmbiguousDate;
+
+// ---
+
+const Contact = Class({
 
     Extends: Record,
 
@@ -46,11 +54,11 @@ const Contact = O.Class({
         defaultValue: ''
     }),
 
-    birthday: attr( JMAP.AmbiguousDate, {
-        defaultValue: new JMAP.AmbiguousDate( 0, 0, 0 )
+    birthday: attr( AmbiguousDate, {
+        defaultValue: '0000-00-00'
     }),
-    anniversary: attr( JMAP.AmbiguousDate, {
-        defaultValue: new JMAP.AmbiguousDate( 0, 0, 0 )
+    anniversary: attr( AmbiguousDate, {
+        defaultValue: '0000-00-00'
     }),
 
     company: attr( String, {
@@ -81,35 +89,62 @@ const Contact = O.Class({
         defaultValue: ''
     }),
 
+    isEditable: function () {
+        var accountId = this.get( 'accountId' );
+        return !accountId ||
+            !auth.get( 'accounts' )[ accountId ].isReadOnly;
+    }.property( 'accountId' ),
+
     // ---
 
     groups: function () {
         var contact = this;
         return contact
             .get( 'store' )
-            .getAll( JMAP.ContactGroup, null, O.sortByProperties([ 'name' ]) )
+            .getAll( JMAP.ContactGroup, null, sortByProperties([ 'name' ]) )
             .filter( function ( group ) {
                 return group.contains( contact );
            });
-    }.property().nocache(),
+    }.property(),
+
+    groupsDidChange: function () {
+        this.computedPropertyDidChange( 'groups' );
+    },
 
     // ---
+
+    init: function () {
+        Contact.parent.init.apply( this, arguments );
+        this.get( 'store' ).on( JMAP.ContactGroup, this, 'groupsDidChange' );
+    },
+
+    storeWillUnload: function () {
+        this.get( 'store' ).off( JMAP.ContactGroup, this, 'groupsDidChange' );
+        Contact.parent.storeWillUnload.call( this );
+    },
 
     // Destroy dependent records.
     destroy: function () {
         this.get( 'groups' ).forEach( function ( group ) {
-            group.get( 'contacts' ).remove( this );
+            group.removeContact( this );
         }, this );
         Contact.parent.destroy.call( this );
     },
 
     // ---
 
-    name: function () {
-        var name = ( this.get( 'firstName' ) + ' ' +
-            this.get( 'lastName' ) ).trim();
-        if ( !name ) {
-            name = this.get( 'company' );
+    name: function ( name ) {
+        if ( name !== undefined ) {
+            name = name ? name.trim() : '';
+            var space = name.lastIndexOf( ' ' );
+            this.set( 'firstName', space > -1 ?
+                    name.slice( 0, space ) : name )
+                .set( 'lastName', space > -1 ?
+                    name.slice( space + 1 ) : '' );
+        } else {
+            name = (
+                this.get( 'firstName' ) + ' ' + this.get( 'lastName' )
+            ).trim() || this.get( 'company' );
         }
         return name;
     }.property( 'firstName', 'lastName', 'company' ),
@@ -123,8 +158,8 @@ const Contact = O.Class({
     }.property( 'name' ),
 
     defaultEmailIndex: function () {
-        var emails = this.get( 'emails' ),
-            i, l;
+        var emails = this.get( 'emails' );
+        var i, l;
         for ( i = 0, l = emails.length; i < l; i += 1 ) {
             if ( emails[i].isDefault ) {
                 return i;
@@ -139,67 +174,55 @@ const Contact = O.Class({
     }.property( 'emails' ),
 
     defaultNameAndEmail: function () {
-        var name = this.get( 'emailName' ),
-            email = this.get( 'defaultEmail' );
+        var name = this.get( 'emailName' );
+        var email = this.get( 'defaultEmail' );
         return email ? name ? name + ' <' + email + '>' : email : '';
     }.property( 'emailName', 'defaultEmail' )
 });
+Contact.__guid__ = 'Contact';
+Contact.dataGroup = 'urn:ietf:params:jmap:contacts';
 
-JMAP.contacts.handle( Contact, {
+// ---
+
+contacts.handle( Contact, {
 
     precedence: 0, // Before ContactGroup
 
-    fetch: function ( ids ) {
-        this.callMethod( 'getContacts', {
-            ids: ids || null,
-        });
-    },
-
-    refresh: function ( ids, state ) {
-        if ( ids ) {
-            this.callMethod( 'getContacts', {
-                ids: ids,
-            });
-        } else {
-            this.callMethod( 'getContactUpdates', {
-                sinceState: state,
-                maxChanges: 100,
-            });
-            this.callMethod( 'getContacts', {
-                '#ids': {
-                    resultOf: this.getPreviousMethodId(),
-                    path: '/changed',
-                },
-            });
-        }
-    },
-
-    commit: 'setContacts',
+    fetch: 'Contact',
+    refresh: 'Contact',
+    commit: 'Contact',
 
     // ---
 
-    contacts: function ( args, reqMethod, reqArgs ) {
+    'Contact/get': function ( args, reqMethod, reqArgs ) {
         const isAll = ( reqArgs.ids === null );
         this.didFetch( Contact, args, isAll );
     },
 
-    contactUpdates: function ( args ) {
+    'Contact/changes': function ( args ) {
         const hasDataForChanged = true;
         this.didFetchUpdates( Contact, args, hasDataForChanged );
-        if ( args.hasMoreUpdates ) {
-            this.get( 'store' ).fetchAll( Contact, true );
+        if ( args.hasMoreChanges ) {
+            this.get( 'store' ).fetchAll( args.accountId, Contact, true );
         }
     },
 
-    error_getContactUpdates_cannotCalculateChanges: function () {
-        // All our data may be wrong. Refetch everything.
-        this.fetchAllRecords( Contact );
+    'Contact/copy': function ( args ) {
+        this.didCopy( Contact, args );
     },
 
-    contactsSet: function ( args ) {
+    'error_Contact/changes_cannotCalculateChanges': function ( _, __, reqArgs ) {
+        var accountId = reqArgs.accountId;
+        // All our data may be wrong. Refetch everything.
+        this.fetchAllRecords( accountId, Contact );
+    },
+
+    'Contact/set': function ( args ) {
         this.didCommit( Contact, args );
     },
 });
+
+// --- Export
 
 JMAP.Contact = Contact;
 

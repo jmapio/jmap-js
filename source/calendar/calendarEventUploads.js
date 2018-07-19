@@ -10,7 +10,16 @@
 
 ( function ( JMAP ) {
 
-JMAP.calendar.eventUploads = {
+const clone = O.clone;
+const Class = O.Class;
+
+const store = JMAP.store;
+const calendar = JMAP.calendar;
+const LocalFile = JMAP.LocalFile;
+
+// ---
+
+const eventUploads = {
 
     inProgress: {},
     awaitingSave: {},
@@ -80,13 +89,13 @@ JMAP.calendar.eventUploads = {
             }
         }
         this.finishEdit( event, 'inEdit', 'inServer' );
-        event.getDoppelganger( JMAP.store )
+        event.getDoppelganger( store )
                  .computedPropertyDidChange( 'files' );
     },
 
     discard: function ( event ) {
         this.finishEdit( event, 'inServer', 'inEdit' );
-        event.getDoppelganger( JMAP.calendar.editStore )
+        event.getDoppelganger( calendar.editStore )
                 .computedPropertyDidChange( 'files' );
     },
 
@@ -101,7 +110,7 @@ JMAP.calendar.eventUploads = {
                 size: file.get( 'size' )
             },
             editEvent = file.editEvent,
-            editLinks = O.clone( editEvent.get( 'links' ) ) || {},
+            editLinks = clone( editEvent.get( 'links' ) ) || {},
             id, awaitingSave,
             serverEvent, serverLinks;
 
@@ -117,8 +126,8 @@ JMAP.calendar.eventUploads = {
         } else {
             this.keepFile( file.get( 'path' ), file.get( 'name' ) );
             // Save new attachment to server
-            serverEvent = editEvent.getDoppelganger( JMAP.store );
-            serverLinks = O.clone( serverEvent.get( 'links' ) ) || {};
+            serverEvent = editEvent.getDoppelganger( store );
+            serverLinks = clone( serverEvent.get( 'links' ) ) || {};
             serverLinks[ link.href ] = link;
             serverEvent.set( 'links', serverLinks );
             // If in edit, push to edit record as well.
@@ -134,24 +143,18 @@ JMAP.calendar.eventUploads = {
         var event = file.editEvent;
         file.inServer = false;
         this.remove( event, file );
-        event.getDoppelganger( JMAP.store )
+        event.getDoppelganger( store )
              .computedPropertyDidChange( 'files' );
     },
 
     keepFile: function ( path, name ) {
-        // Move attachment from temp
-        JMAP.mail.callMethod( 'moveFile', {
-            path: path,
-            newPath: 'att:/cal/' + name,
-            createFolders: true,
-            mayRename: true
-        });
-    }
+        // TODO: Create Storage Node in Calendar Event Attachments folder.
+    },
 };
 
-const CalendarAttachment = O.Class({
+const CalendarAttachment = Class({
 
-    Extends: JMAP.LocalFile,
+    Extends: LocalFile,
 
     init: function ( file, event ) {
         this.editEvent = event;
@@ -161,13 +164,16 @@ const CalendarAttachment = O.Class({
     },
 
     uploadDidSucceed: function () {
-        JMAP.calendar.eventUploads.didUpload( this );
+        eventUploads.didUpload( this );
     },
     uploadDidFail: function () {
-        JMAP.calendar.eventUploads.didFail( this );
+        eventUploads.didFail( this );
     }
 });
 
+// --- Export
+
 JMAP.CalendarAttachment = CalendarAttachment;
+JMAP.calendar.eventUploads = eventUploads;
 
 }( JMAP ) );

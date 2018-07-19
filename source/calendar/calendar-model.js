@@ -1,7 +1,7 @@
 // -------------------------------------------------------------------------- \\
 // File: calendar-model.js                                                    \\
 // Module: CalendarModel                                                      \\
-// Requires: API, Calendar.js, CalendarEvent.js                               \\
+// Requires: API, Calendar.js, CalendarEvent.js, RecurrenceRule.js            \\
 // -------------------------------------------------------------------------- \\
 
 /*global O, JMAP */
@@ -10,13 +10,24 @@
 
 ( function ( JMAP ) {
 
+const clone = O.clone;
+const mixin = O.mixin;
+const Class = O.Class;
+const Obj = O.Object;
+const ObservableArray = O.ObservableArray;
+const NestedStore = O.NestedStore;
+const StoreUndoManager = O.StoreUndoManager;
+
+const auth = JMAP.auth;
 const store = JMAP.store;
 const Calendar = JMAP.Calendar;
 const CalendarEvent = JMAP.CalendarEvent;
+const RecurrenceRule = JMAP.RecurrenceRule;
+const CALENDARS_DATA = auth.CALENDARS_DATA;
 
 // ---
 
-const nonRepeatingEvents = new O.Object({
+const nonRepeatingEvents = new Obj({
 
     index: null,
 
@@ -54,10 +65,10 @@ const nonRepeatingEvents = new O.Object({
             this.buildIndex();
         }
         return this.index[ timestamp ] || null;
-    }
+    },
 });
 
-const repeatingEvents = new O.Object({
+const repeatingEvents = new Obj({
 
     start: null,
     end: null,
@@ -124,7 +135,7 @@ const repeatingEvents = new O.Object({
             this.buildIndex( date );
         }
         return this.index[ timestamp ] || null;
-    }
+    },
 });
 
 // ---
@@ -176,9 +187,9 @@ const getEventsForDate = function ( date, timeZone, allDay ) {
 
 const eventsLists = [];
 
-const EventsList = O.Class({
+const EventsList = Class({
 
-    Extends: O.ObservableArray,
+    Extends: ObservableArray,
 
     init: function ( date, allDay ) {
         this.date = date;
@@ -198,7 +209,7 @@ const EventsList = O.Class({
     recalculate: function () {
         return this.set( '[]', getEventsForDate(
             this.date, JMAP.calendar.get( 'timeZone' ), this.allDay ));
-    }
+    },
 });
 
 // ---
@@ -212,22 +223,162 @@ const now = new Date();
 const usedTimeZones = {};
 var editStore;
 
-Object.assign( JMAP.calendar, {
+mixin( JMAP.calendar, {
 
-    editStore: editStore = new O.NestedStore( store ),
+    editStore: editStore = new NestedStore( store ),
 
-    undoManager: new O.StoreUndoManager({
+    undoManager: new StoreUndoManager({
         store: editStore,
         maxUndoCount: 10
     }),
 
-    eventSources: eventSources,
-    repeatingEvents: repeatingEvents,
-    nonRepeatingEvents: nonRepeatingEvents,
+    /*  Issues with splitting:
+        1. If split on an inclusion, the start date of the new recurrence
+           may not match the recurrence, which can cause incorrect expansion
+           for the future events.
+        2. If the event has date-altering exceptions, these are ignored for
+           the purposes of splitting.
+    */
+    splitEventAtOccurrence: function ( occurrence ) {
+        var event = occurrence.get( 'original' );
+
+        var recurrenceRule = event.get( 'recurrenceRule' );
+        var recurrenceOverrides = event.get( 'recurrenceOverrides' );
+        var recurrenceJSON = recurrenceRule ? recurrenceRule.toJSON() : null;
+        var isFinite = !recurrenceRule ||
+                !!( recurrenceRule.count || recurrenceRule.until );
+
+        var allStartDates = event.get( 'allStartDates' );
+        var occurrenceIndex = occurrence.get( 'index' );
+        var occurrenceTotal = allStartDates.length;
+        var isLast = isFinite && ( occurrenceIndex + 1 === occurrenceTotal );
+
+        var startJSON = occurrence.get( 'id' );
+        var start = Date.fromJSON( startJSON );
+
+        var hasOverridesPast = false;
+        var hasOverridesFuture = false;
+
+        var pastRelatedTo, futureRelatedTo, uidOfFirst;
+        var recurrenceOverridesPast, recurrenceOverridesFuture;
+        var date;
+        var toEditEvent;
+
+        if ( !occurrenceIndex ) {
+            return event;
+        }
+
+        // Duplicate original event
+        event = event.getDoppelganger( editStore );
+        if ( isLast ) {
+            toEditEvent = occurrence.clone( editStore );
+        } else {
+            toEditEvent = event.clone( editStore )
+                .set( 'replyTo', null )
+                .set( 'participants', null )
+                .set( 'participantId', null )
+                .set( 'start', occurrence.getOriginalForKey( 'start' ) );
+        }
+
+        // Set first/next relatedTo pointers
+        pastRelatedTo = event.get( 'relatedTo' );
+        uidOfFirst = pastRelatedTo &&
+            Object.keys( pastRelatedTo ).find( function ( uid ) {
+                return pastRelatedTo[ uid ].relation.contains( 'first' );
+            }) ||
+            event.get( 'uid' );
+
+        futureRelatedTo = {};
+        futureRelatedTo[ uidOfFirst ] = {
+            relation: [ 'first' ],
+        };
+        pastRelatedTo = pastRelatedTo ? clone( pastRelatedTo ) : {};
+        pastRelatedTo[ toEditEvent.get( 'uid' ) ] = {
+            relation: [ 'next' ],
+        };
+        toEditEvent.set( 'relatedTo', futureRelatedTo );
+        event.set( 'relatedTo',  pastRelatedTo );
+
+        // Modify original recurrence start or end
+        if ( isFinite && recurrenceRule && !recurrenceOverrides ) {
+            if ( occurrenceIndex === 1 ) {
+                event.set( 'recurrenceRule', null );
+            } else {
+                event.set( 'recurrenceRule',
+                    RecurrenceRule.fromJSON( O.extend(
+                    recurrenceJSON.until ? {
+                        until: allStartDates[ occurrenceIndex - 1 ].toJSON()
+                    } : {
+                        count: occurrenceIndex
+                    }, recurrenceJSON, true ))
+                );
+            }
+        } else if ( recurrenceRule ) {
+            event.set( 'recurrenceRule',
+                RecurrenceRule.fromJSON( O.extend({
+                    count: null,
+                    until: new Date( start - ( 24 * 60 * 60 * 1000 ) ).toJSON()
+                }, recurrenceJSON, true ))
+            );
+        }
+
+        // Set recurrence for new event
+        if ( !isLast && recurrenceRule ) {
+            if ( recurrenceJSON.count ) {
+                toEditEvent.set( 'recurrenceRule',
+                    RecurrenceRule.fromJSON( O.extend(
+                    // If there are RDATEs beyond the final normal
+                    // occurrence this may result in extra events being added
+                    // by the split. Left as a known issue for now.
+                    recurrenceOverrides ? {
+                        count: null,
+                        until: allStartDates.last().toJSON()
+                    } : {
+                        count: occurrenceTotal - occurrenceIndex,
+                        until: null
+                    }, recurrenceJSON, true ))
+                );
+            } else {
+                toEditEvent.set( 'recurrenceRule', recurrenceRule );
+            }
+        }
+
+        // Split overrides
+        if ( recurrenceOverrides ) {
+            recurrenceOverridesPast = {};
+            recurrenceOverridesFuture = {};
+            for ( date in recurrenceOverrides ) {
+                if ( date < startJSON ) {
+                    recurrenceOverridesPast[ date ] =
+                        recurrenceOverrides[ date ];
+                    hasOverridesPast = true;
+                } else {
+                    recurrenceOverridesFuture[ date ] =
+                        recurrenceOverrides[ date ];
+                    hasOverridesFuture = true;
+                }
+            }
+            event.set( 'recurrenceOverrides',
+                hasOverridesPast ? recurrenceOverridesPast : null );
+            if ( !isLast ) {
+                toEditEvent.set( 'recurrenceOverrides',
+                    hasOverridesFuture ? recurrenceOverridesFuture : null );
+            }
+        }
+
+        // Save new event to store
+        return toEditEvent.saveToStore();
+    },
+
+    // ---
 
     showDeclined: false,
     timeZone: null,
     usedTimeZones: usedTimeZones,
+
+    eventSources: eventSources,
+    repeatingEvents: repeatingEvents,
+    nonRepeatingEvents: nonRepeatingEvents,
 
     loadingEventsStart: now,
     loadingEventsEnd: now,
@@ -240,19 +391,36 @@ Object.assign( JMAP.calendar, {
         return new EventsList( date, allDay );
     },
 
-    fetchEventsInRange: function ( after, before, callback ) {
-        this.callMethod( 'getCalendarEventList', {
+    fetchEventsInRangeForAccount: function ( accountId, after, before ) {
+        this.callMethod( 'CalendarEvent/query', {
+            accountId: accountId,
             filter: {
                 after: after.toJSON() + 'Z',
                 before: before.toJSON() + 'Z',
             },
         });
-        this.callMethod( 'getCalendarEvents', {
+        this.callMethod( 'CalendarEvent/get', {
+            accountId: accountId,
             '#ids': {
                 resultOf: this.getPreviousMethodId(),
+                name: 'CalendarEvent/query',
                 path: '/ids',
+            },
+        });
+    },
+
+    fetchEventsInRange: function ( after, before, callback ) {
+        var accounts = auth.get( 'accounts' );
+        var accountId, hasDataFor;
+        for ( accountId in accounts ) {
+            hasDataFor = accounts[ accountId ].hasDataFor;
+            if ( hasDataFor.contains( CALENDARS_DATA ) ) {
+                this.fetchEventsInRangeForAccount( accountId, after, before );
             }
-        }, callback );
+        }
+        if ( callback ) {
+            this.addCallback( callback );
+        }
         return this;
     },
 
@@ -304,10 +472,13 @@ Object.assign( JMAP.calendar, {
         });
     }.queue( 'before' ).observes( 'showDeclined' ),
 
-    flushCache: function () {
-        this.replaceEvents = true;
-        this.fetchEventsInRange( this.loadedEventsStart, this.loadedEventsEnd );
+    flushCache: function ( accountId ) {
+        this.replaceEvents[ accountId ] = true;
+        this.fetchEventsInRangeForAccount( accountId,
+            this.loadedEventsStart, this.loadedEventsEnd );
     },
+
+    // ---
 
     seenTimeZone: function ( timeZone ) {
         if ( timeZone ) {
@@ -316,16 +487,16 @@ Object.assign( JMAP.calendar, {
                 ( usedTimeZones[ timeZoneId ] || 0 ) + 1;
         }
         return this;
-    }
+    },
 });
 store.on( Calendar, JMAP.calendar, 'recalculate' )
      .on( CalendarEvent, JMAP.calendar, 'clearIndexes' );
 
 JMAP.calendar.handle( null, {
-    calendarEventList: function () {
+    'CalendarEvent/query': function () {
         // We don't care about the list, we only use it to fetch the
         // events we want. This may change with search in the future!
-    }
+    },
 });
 
 }( JMAP ) );

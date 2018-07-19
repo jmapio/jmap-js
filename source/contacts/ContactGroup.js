@@ -10,45 +10,48 @@
 
 ( function ( JMAP ) {
 
-const Record = O.Record,
-    attr = Record.attr;
-
+const loc = O.loc;
+const Class = O.Class;
+const Record = O.Record;
+const attr = Record.attr;
 const ValidationError = O.ValidationError;
 const REQUIRED = ValidationError.REQUIRED;
 
-const ContactGroup = O.Class({
+const auth = JMAP.auth;
+const contacts = JMAP.contacts;
+const Contact = JMAP.Contact;
+
+// ---
+
+const ContactGroup = Class({
 
     Extends: Record,
+
+    isEditable: function () {
+        var accountId = this.get( 'accountId' );
+        return !accountId ||
+            !auth.get( 'accounts' )[ accountId ].isReadOnly;
+    }.property( 'accountId' ),
 
     name: attr( String, {
         defaultValue: '',
         validate: function ( propValue/*, propKey, record*/ ) {
             if ( !propValue ) {
                 return new ValidationError( REQUIRED,
-                    O.loc( 'S_LABEL_REQUIRED' )
+                    loc( 'S_LABEL_REQUIRED' )
                 );
             }
             return null;
-        }
+        },
     }),
 
     contacts: Record.toMany({
-        recordType: JMAP.Contact,
+        recordType: Contact,
         key: 'contactIds',
         defaultValue: [],
-        // Should really check that either:
-        // (a) This is not a shared group and not a shared contact
-        // (a) The user has write access to shared contacts AND
-        //   (i)  The contact is shared
-        //   (ii) The group is
-        // (b) Is only adding/removing non-shared groups (need to compare
-        //     new array to old array)
-        // However, given the UI does not allow illegal changes to be made
-        // (group is disabled in groups menu) and the server enforces this,
-        // we don't bother checking it.
         willSet: function () {
             return true;
-        }
+        },
     }),
 
     contactIndex: function () {
@@ -63,61 +66,55 @@ const ContactGroup = O.Class({
 
     contains: function ( contact ) {
         return !!this.get( 'contactIndex' )[ contact.get( 'storeKey' ) ];
-    }
-});
+    },
 
-JMAP.contacts.handle( ContactGroup, {
+    addContact: function ( contact ) {
+        this.get( 'contacts' ).add( contact );
+        return this;
+    },
+
+    removeContact: function ( contact ) {
+        this.get( 'contacts' ).remove( contact );
+        return this;
+    },
+});
+ContactGroup.__guid__ = 'ContactGroup';
+ContactGroup.dataGroup = 'urn:ietf:params:jmap:contacts';
+
+// ---
+
+contacts.handle( ContactGroup, {
 
     precedence: 1, // After Contact
 
-    fetch: function ( ids ) {
-        this.callMethod( 'getContactGroups', {
-            ids: ids || null,
-        });
-    },
-
-    refresh: function ( ids, state ) {
-        if ( ids ) {
-            this.callMethod( 'getContactGroups', {
-                ids: ids,
-            });
-        } else {
-            this.callMethod( 'getContactGroupUpdates', {
-                sinceState: state,
-                maxChanges: 100,
-            });
-            this.callMethod( 'getContactGroups', {
-                '#ids': {
-                    resultOf: this.getPreviousMethodId(),
-                    path: '/changed',
-                },
-            });
-        }
-    },
-
-    commit: 'setContactGroups',
+    fetch: 'ContactGroup',
+    refresh: 'ContactGroup',
+    commit: 'ContactGroup',
 
     // ---
 
-    contactGroups: function ( args, reqMethod, reqArgs ) {
+    'ContactGroup/get': function ( args, _, reqArgs ) {
         const isAll = ( reqArgs.ids === null );
         this.didFetch( ContactGroup, args, isAll );
     },
 
-    contactGroupUpdates: function ( args ) {
+    'ContactGroup/changes': function ( args ) {
         const hasDataForChanged = true;
         this.didFetchUpdates( ContactGroup, args, hasDataForChanged );
     },
 
-    error_getContactGroupUpdates_cannotCalculateChanges: function () {
+    'error_ContactGroup/changes_cannotCalculateChanges': function ( _, __, reqArgs ) {
+        var accountId = reqArgs.accountId;
         // All our data may be wrong. Refetch everything.
-        this.fetchAllRecords( ContactGroup );
+        this.fetchAllRecords( accountId, ContactGroup );
     },
 
-    contactGroupsSet: function ( args ) {
+    'ContactGroup/set': function ( args ) {
         this.didCommit( ContactGroup, args );
     },
 });
+
+// --- Export
 
 JMAP.ContactGroup = ContactGroup;
 

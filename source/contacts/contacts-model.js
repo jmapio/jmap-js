@@ -10,17 +10,25 @@
 
 ( function ( JMAP ) {
 
-const contactsIndex = new O.Object({
+const Obj = O.Object;
+const NestedStore = O.NestedStore;
+const StoreUndoManager = O.StoreUndoManager;
+
+const Contact = JMAP.Contact;
+const store = JMAP.store;
+const contacts = JMAP.contacts;
+
+// ---
+
+const contactsIndex = new Obj({
     index: null,
     clearIndex: function () {
         this.index = null;
     },
     buildIndex: function () {
-        var index = this.index = {},
-            Contact = JMAP.Contact,
-            store = JMAP.store,
-            storeKeys = store.findAll( Contact ),
-            i, l, contact, emails, ll;
+        var index = this.index = {};
+        var storeKeys = store.findAll( Contact );
+        var i, l, contact, emails, ll;
         for ( i = 0, l = storeKeys.length; i < l; i += 1 ) {
             contact = store.materialiseRecord( storeKeys[i], Contact );
             emails = contact.get( 'emails' );
@@ -33,24 +41,26 @@ const contactsIndex = new O.Object({
     },
     getIndex: function () {
         return this.index || this.buildIndex();
-    }
+    },
 });
-JMAP.store.on( JMAP.Contact, contactsIndex, 'clearIndex' );
+store.on( Contact, contactsIndex, 'clearIndex' );
 
-const editStore = new O.NestedStore( JMAP.store );
+// ---
 
-Object.assign( JMAP.contacts, {
+const editStore = new NestedStore( store );
+
+Object.assign( contacts, {
     editStore: editStore,
 
-    undoManager: new O.StoreUndoManager({
+    undoManager: new StoreUndoManager({
         store: editStore,
-        maxUndoCount: 10
+        maxUndoCount: 10,
     }),
 
     getContactFromEmail: function ( email ) {
         var index = contactsIndex.getIndex();
         return index[ email.toLowerCase() ] || null;
-    }
+    },
 });
 
 }( JMAP ) );

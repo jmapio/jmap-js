@@ -10,12 +10,13 @@
 
 ( function ( JMAP ) {
 
+const Class = O.Class;
 const Record = O.Record;
 const attr = Record.attr;
 
 // ---
 
-const Identity = O.Class({
+const Identity = Class({
 
     Extends: Record,
 
@@ -25,22 +26,20 @@ const Identity = O.Class({
 
     email: attr( String ),
 
-    replyTo: attr( String, {
-        defaultValue: '',
+    replyTo: attr( Array, {
+        defaultValue: null,
     }),
 
-    bcc: attr( String, {
-        defaultValue: '',
+    bcc: attr( Array, {
+        defaultValue: null,
     }),
 
     textSignature: attr( String, {
-        key: 'textSignature',
-        defaultValue: ''
+        defaultValue: '',
     }),
 
     htmlSignature: attr( String, {
-        key: 'htmlSignature',
-        defaultValue: ''
+        defaultValue: '',
     }),
 
     mayDelete: attr( Boolean, {
@@ -61,62 +60,44 @@ const Identity = O.Class({
         return email;
     }.property( 'name', 'email' ),
 });
+Identity.__guid__ = 'Identity';
+Identity.dataGroup = 'urn:ietf:params:jmap:mail';
 
 JMAP.mail.handle( Identity, {
 
     precedence: 2,
 
-    fetch: function ( ids ) {
-        this.callMethod( 'getIdentities', {
-            ids: ids || null,
-        });
-    },
-
-    refresh: function ( ids, state ) {
-        if ( ids ) {
-            this.callMethod( 'getIdentities', {
-                ids: ids,
-            });
-        } else {
-            this.callMethod( 'getIdentityUpdates', {
-                sinceState: state,
-                maxChanges: 100,
-            });
-            this.callMethod( 'getIdentities', {
-                '#ids': {
-                    resultOf: this.getPreviousMethodId(),
-                    path: '/changed',
-                },
-            });
-        }
-    },
-
-    commit: 'setIdentities',
+    fetch: 'Identity',
+    refresh: 'Identity',
+    commit: 'Identity',
 
     // ---
 
-    identities: function ( args, reqMethod, reqArgs ) {
+    'Identity/get': function ( args, reqMethod, reqArgs ) {
         const isAll = ( reqArgs.ids === null );
         this.didFetch( Identity, args, isAll );
     },
 
-    identityUpdates: function ( args ) {
+    'Identity/changes': function ( args ) {
         const hasDataForChanged = true;
         this.didFetchUpdates( Identity, args, hasDataForChanged );
-        if ( args.hasMoreUpdates ) {
-            this.get( 'store' ).fetchAll( Identity, true );
+        if ( args.hasMoreChanges ) {
+            this.get( 'store' ).fetchAll( args.accountId, Identity, true );
         }
     },
 
-    error_getIdentityUpdates_cannotCalculateChanges: function () {
+    'error_Identity/changes_cannotCalculateChanges': function ( _, __, reqArgs ) {
+        var accountId = reqArgs.accountId;
         // All our data may be wrong. Refetch everything.
-        this.fetchAllRecords( Identity );
+        this.fetchAllRecords( accountId, Identity );
     },
 
-    identitiesSet: function ( args ) {
+    'Identity/set': function ( args ) {
         this.didCommit( Identity, args );
     },
 });
+
+// --- Export
 
 JMAP.Identity = Identity;
 

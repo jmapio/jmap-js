@@ -10,24 +10,48 @@
 
 ( function ( JMAP ) {
 
-const LocalFile = O.Class({
+const Class = O.Class;
+const Obj = O.Object;
+const RunLoop = O.RunLoop;
+const HttpRequest = O.HttpRequest;
 
-    Extends: O.Object,
+const upload = JMAP.upload;
+const auth = JMAP.auth;
 
-    nextEventTarget: JMAP.upload,
+// ---
 
-    init: function ( file ) {
+const LocalFile = Class({
+
+    Extends: Obj,
+
+    nextEventTarget: upload,
+
+    init: function ( file, accountId ) {
         this.file = file;
+        this.accountId = accountId;
         this.blobId = '';
 
-        this.name = file.name ||
+        // Using NFC form for the filename helps when it uses a combining
+        // character that's not in our font. Firefox renders this badly, so
+        // does Safari (but in a different way). By normalizing, the whole
+        // replacement character will be drawn from the fallback font, which
+        // looks much better. (Chrome does this by default anyway.)
+        // See PTN425984
+        var name = file.name;
+        if ( name && name.normalize ) {
+            name = name.normalize( 'NFC' );
+        }
+        this.name = name ||
             ( 'image.' + ( /\w+$/.exec( file.type ) || [ 'png' ] )[0] );
         this.type = file.type;
         this.size = file.size;
 
         this.isTooBig = false;
         this.isUploaded = false;
+
+        this.response = null;
         this.progress = 0;
+        this.loaded = 0;
 
         this._backoff = 500;
 
@@ -37,7 +61,7 @@ const LocalFile = O.Class({
     destroy: function () {
         var request = this._request;
         if ( request ) {
-            JMAP.upload.abort( request );
+            upload.abort( request );
         }
         LocalFile.parent.destroy.call( this );
     },
@@ -47,46 +71,51 @@ const LocalFile = O.Class({
             obj.removeObserverForKey( key, this, 'upload' );
         }
         if ( !this.isDestroyed ) {
-            JMAP.upload.send(
-                this._request = new O.HttpRequest({
+            upload.send(
+                this._request = new HttpRequest({
                     nextEventTarget: this,
                     method: 'POST',
-                    url: JMAP.auth.get( 'uploadUrl' ),
+                    url: auth.get( 'uploadUrl' ).replace(
+                        '{accountId}', encodeURIComponent( this.accountId ) ),
                     headers: {
-                        'Authorization':
-                            'Bearer ' + JMAP.auth.get( 'accessToken' )
+                        'Authorization': 'Bearer ' + auth.get( 'accessToken' ),
                     },
                     withCredentials: true,
-                    data: this.file
+                    responseType: 'json',
+                    data: this.file,
                 })
             );
         }
         return this;
     },
 
-    _uploadDidProgress: function () {
-        this.set( 'progress', this._request.get( 'uploadProgress' ) );
+    _uploadDidProgress: function ( event ) {
+        const loaded = event.loaded;
+        const total = event.total;
+        const delta = loaded - this.get( 'loaded' );
+        const progress = ~~( 100 * loaded / total );
+        this.set( 'progress', progress )
+            .set( 'loaded', loaded )
+            .fire( 'localfile:progress', {
+                loaded: loaded,
+                total: total,
+                delta: delta,
+                progress: progress,
+            });
     }.on( 'io:uploadProgress' ),
 
     _uploadDidSucceed: function ( event ) {
-        var response, property;
-
-        // Parse response.
-        try {
-            response = JSON.parse( event.data );
-        } catch ( error ) {}
+        var response = event.data;
 
         // Was there an error?
         if ( !response ) {
             return this.onFailure( event );
         }
 
-        this.beginPropertyChanges();
-        for ( property in response ) {
-            // blobId, type, size, expires[, width, height]
-            this.set( property, response[ property ] );
-        }
-        this.set( 'progress', 100 )
+        this.beginPropertyChanges()
+            .set( 'response', response )
+            .set( 'blobId', response.blobId )
+            .set( 'progress', 100 )
             .set( 'isUploaded', true )
             .endPropertyChanges()
             .uploadDidSucceed();
@@ -100,18 +129,18 @@ const LocalFile = O.Class({
         case 415: // Unsupported Media Type
             break;
         case 401: // Unauthorized
-            JMAP.auth.didLoseAuthentication()
-                     .addObserverForKey( 'isAuthenticated', this, 'upload' );
-           break;
+            auth.didLoseAuthentication()
+                .addObserverForKey( 'isAuthenticated', this, 'upload' );
+            break;
         case 404: // Not Found
-            JMAP.auth.refindEndpoints()
-                     .addObserverForKey( 'uploadUrl', this, 'upload' );
+            auth.fetchSessions()
+                .addObserverForKey( 'uploadUrl', this, 'upload' );
             break;
         case 413: // Request Entity Too Large
             this.set( 'isTooBig', true );
             break;
         default:  // Connection failed or 503 Service Unavailable
-            O.RunLoop.invokeAfterDelay( this.upload, this._backoff, this );
+            RunLoop.invokeAfterDelay( this.upload, this._backoff, this );
             this._backoff = Math.min( this._backoff * 2, 30000 );
             return;
         }
@@ -127,9 +156,16 @@ const LocalFile = O.Class({
         }
     }.on( 'io:end' ),
 
-    uploadDidSucceed: function () {},
-    uploadDidFail: function () {}
+    uploadDidSucceed: function () {
+        this.fire( 'localfile:success' );
+    },
+
+    uploadDidFail: function () {
+        this.fire( 'localfile:failure' );
+    },
 });
+
+// --- Export
 
 JMAP.LocalFile = LocalFile;
 

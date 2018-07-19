@@ -9,7 +9,7 @@
 
 ( function ( JMAP ) {
 
-const durationFormat = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/;
+const durationFormat = /^P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/;
 
 const Duration = O.Class({
     init: function ( durationInMS ) {
@@ -26,7 +26,7 @@ const Duration = O.Class({
         var quantity;
 
         // Days. Also encompasses 0 duration. (P0D).
-        if ( !durationInMS || durationInMS > 24 * 60 * 60 * 1000 ) {
+        if ( !durationInMS || durationInMS >= 24 * 60 * 60 * 1000 ) {
             quantity = Math.floor( durationInMS / ( 24 * 60 * 60 * 1000 ) );
             output += quantity;
             output += 'D';
@@ -70,10 +70,11 @@ Duration.fromJSON = function ( value ) {
     var results = value ? durationFormat.exec( value ) : null;
     var durationInMS = 0;
     if ( results ) {
-        durationInMS += ( +results[1] || 0 ) * 24 * 60 * 60 * 1000;
-        durationInMS += ( +results[2] || 0 ) * 60 * 60 * 1000;
-        durationInMS += ( +results[3] || 0 ) * 60 * 1000;
-        durationInMS += ( +results[4] || 0 ) * 1000;
+        durationInMS += ( +results[1] || 0 ) * 7 * 24 * 60 * 60 * 1000;
+        durationInMS += ( +results[2] || 0 )     * 24 * 60 * 60 * 1000;
+        durationInMS += ( +results[3] || 0 )          * 60 * 60 * 1000;
+        durationInMS += ( +results[4] || 0 )               * 60 * 1000;
+        durationInMS += ( +results[5] || 0 )                    * 1000;
     }
     return new Duration( durationInMS );
 };

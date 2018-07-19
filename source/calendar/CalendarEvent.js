@@ -10,14 +10,28 @@
 
 ( function ( JMAP, undefined ) {
 
+const clone = O.clone;
+const Class = O.Class;
 const Record = O.Record;
 const attr = Record.attr;
+const TimeZone = O.TimeZone;
+
+const calendar = JMAP.calendar;
+const Calendar = JMAP.Calendar;
+const Duration = JMAP.Duration;
+const RecurrenceRule = JMAP.RecurrenceRule;
+const uuidCreate = JMAP.uuid.create;
+const YEARLY = RecurrenceRule.YEARLY;
+const MONTHLY = RecurrenceRule.MONTHLY;
+const WEEKLY = RecurrenceRule.WEEKLY;
+
+// ---
 
 const numerically = function ( a, b ) {
     return a - b;
 };
 
-const CalendarEvent = O.Class({
+const CalendarEvent = Class({
 
     Extends: Record,
 
@@ -43,102 +57,68 @@ const CalendarEvent = O.Class({
         CalendarEvent.parent.storeWillUnload.call( this );
     },
 
-    // --- Metadata ---
+    clone: function ( store ) {
+        var clone = CalendarEvent.parent.clone.call( this, store );
+        clone.set( 'uid', uuidCreate() );
+        return clone;
+    },
+
+    // --- JMAP
 
     calendar: Record.toOne({
-        Type: JMAP.Calendar,
-        key: 'calendarId'
+        Type: Calendar,
+        key: 'calendarId',
+        willSet: function ( propValue, propKey, record ) {
+            record.set( 'accountId', propValue.get( 'accountId' ) );
+            return true;
+        },
     }),
 
-    uid: attr( String, {
-        noSync: true
+    // --- Metadata
+
+    '@type': attr( String, {
+        defaultValue: 'jsevent',
     }),
 
-    relatedTo: attr( Array ),
+    uid: attr( String ),
+
+    relatedTo: attr( Object ),
 
     prodId: attr( String ),
 
     created: attr( Date, {
-        noSync: true
+        toJSON: Date.toUTCJSON,
+        noSync: true,
     }),
 
     updated: attr( Date, {
-        noSync: true
+        toJSON: Date.toUTCJSON,
+        noSync: true,
     }),
 
     sequence: attr( Number, {
         defaultValue: 0,
-        noSync: true
+        noSync: true,
     }),
 
-    method: attr( String, {
-        noSync: true
-    }),
+    // method: attr( String, {
+    //     noSync: true,
+    // }),
 
-    // --- What ---
+    // --- What
 
     title: attr( String, {
-        defaultValue: ''
+        defaultValue: '',
     }),
 
     description: attr( String, {
-        defaultValue: ''
+        defaultValue: '',
     }),
 
-    links: attr( Object, {
-        defaultValue: null
-    }),
-
-    isUploading: function () {
-        return !!JMAP.calendar.eventUploads.get( this ).length;
-    }.property( 'files' ),
-
-    files: function () {
-        var links = this.get( 'links' ) || {};
-        var files = [];
-        var id, link;
-        for ( id in links ) {
-            link = links[ id ];
-            if ( link.rel === 'enclosure' ) {
-                links.push( new O.Object({
-                    id: id,
-                    name: link.title,
-                    url: link.href,
-                    type: link.type,
-                    size: link.size
-                }));
-            }
-        }
-        return files.concat( JMAP.calendar.eventUploads.get( this ) );
-    }.property( 'links' ),
-
-    addFile: function ( file ) {
-        var attachment = new JMAP.CalendarAttachment( file, this );
-        JMAP.calendar.eventUploads.add( this, attachment );
-        attachment.upload();
-        return this;
-    },
-
-    removeFile: function ( file ) {
-        if ( file instanceof JMAP.CalendarAttachment ) {
-            JMAP.calendar.eventUploads.remove( this, file );
-        } else {
-            var links = O.clone( this.get( 'links' ) );
-            delete links[ file.id ];
-            this.set( 'links', Object.keys( links ).length ? links : null );
-        }
-        return this;
-    },
-
-    // ---
-
-    // locale: attr( String ),
-    // localizations: attr( Object ),
-
-    // --- Where ---
+    // --- Where
 
     locations: attr( Object, {
-        defaultValue: null
+        defaultValue: null,
     }),
 
     location: function ( value ) {
@@ -168,7 +148,7 @@ const CalendarEvent = O.Class({
                 location = locations[ id ];
                 if ( location.rel === 'start' ) {
                     if ( location.timeZone ) {
-                        timeZone = O.TimeZone.fromJSON( location.timeZone );
+                        timeZone = TimeZone.fromJSON( location.timeZone );
                     }
                     break;
                 }
@@ -186,7 +166,7 @@ const CalendarEvent = O.Class({
                 location = locations[ id ];
                 if ( location.rel === 'end' ) {
                     if ( location.timeZone ) {
-                        timeZone = O.TimeZone.fromJSON( location.timeZone );
+                        timeZone = TimeZone.fromJSON( location.timeZone );
                     }
                     break;
                 }
@@ -195,10 +175,25 @@ const CalendarEvent = O.Class({
         return timeZone;
     }.property( 'locations', 'timeZone' ),
 
-    // --- When ---
+    // --- Attachments
+
+    links: attr( Object, {
+        defaultValue: null,
+    }),
+
+    // ---
+
+    // locale: attr( String ),
+    // localizations: attr( Object ),
+
+    // keywords: attr( Array ),
+    // categories: attr( Array ),
+    // color: attr( String ),
+
+    // --- When
 
     isAllDay: attr( Boolean, {
-        defaultValue: false
+        defaultValue: false,
     }),
 
     start: attr( Date, {
@@ -211,26 +206,26 @@ const CalendarEvent = O.Class({
         }
     }),
 
-    duration: attr( JMAP.Duration, {
-        defaultValue: JMAP.Duration.ZERO
+    duration: attr( Duration, {
+        defaultValue: Duration.ZERO,
     }),
 
-    timeZone: attr( O.TimeZone, {
-        defaultValue: null
+    timeZone: attr( TimeZone, {
+        defaultValue: null,
     }),
 
-    recurrenceRule: attr( JMAP.RecurrenceRule, {
+    recurrenceRule: attr( RecurrenceRule, {
         defaultValue: null,
         willSet: function ( propValue, propKey, record ) {
             if ( !propValue ) {
                 record.set( 'recurrenceOverrides', null );
             }
             return true;
-        }
+        },
     }),
 
     recurrenceOverrides: attr( Object, {
-        defaultValue: null
+        defaultValue: null,
     }),
 
     getStartInTimeZone: function ( timeZone ) {
@@ -285,7 +280,7 @@ const CalendarEvent = O.Class({
     utcEnd: function ( date ) {
         var utcStart = this.get( 'utcStart' );
         if ( date ) {
-            this.set( 'duration', new JMAP.Duration(
+            this.set( 'duration', new Duration(
                 Math.max( 0, date - utcStart )
             ));
         } else {
@@ -347,7 +342,7 @@ const CalendarEvent = O.Class({
         var date;
         if ( recurrenceOverrides ) {
             for ( date in recurrenceOverrides ) {
-                if ( !recurrenceOverrides[ date ] ) {
+                if ( recurrenceOverrides[ date ].excluded ) {
                     if ( !dates ) { dates = []; }
                     dates.push( Date.fromJSON( date ) );
                 }
@@ -392,13 +387,13 @@ const CalendarEvent = O.Class({
         if ( recurrenceRule ) {
             duration = this.get( 'duration' ).valueOf();
             switch ( recurrenceRule.frequency ) {
-            case 'yearly':
+            case YEARLY:
                 duration = Math.min( duration, 366 * 24 * 60 * 60 * 1000 );
                 break;
-            case 'monthly':
+            case MONTHLY:
                 duration = Math.min( duration,  31 * 24 * 60 * 60 * 1000 );
                 break;
-            case 'weekly':
+            case WEEKLY:
                 duration = Math.min( duration,   7 * 24 * 60 * 60 * 1000 );
                 break;
             default:
@@ -436,7 +431,7 @@ const CalendarEvent = O.Class({
                 for ( id in recurrenceOverrides ) {
                     occurrence = recurrenceOverrides[ id ];
                     // Remove EXDATEs.
-                    if ( occurrence === null ) {
+                    if ( occurrence.excluded ) {
                         delete occurrencesSet[ id ];
                     }
                     // Add RDATEs.
@@ -490,7 +485,7 @@ const CalendarEvent = O.Class({
             }, {} );
             for ( id in recurrenceOverrides ) {
                 // Remove EXDATEs.
-                if ( recurrenceOverrides[ id ] === null ) {
+                if ( recurrenceOverrides[ id ].excluded ) {
                     delete occurrencesSet[ id ];
                 }
                 // Add RDATEs.
@@ -539,27 +534,34 @@ const CalendarEvent = O.Class({
     }.observes( 'calendar', 'uid', 'relatedTo', 'prodId', 'isAllDay',
         'allStartDates', 'totalOccurrences', 'replyTo', 'participantId' ),
 
-    // --- Scheduling ---
+    // --- Scheduling
 
-    status: attr( String, {
-        defaultValue: 'confirmed'
+    // priority: attr( Number, {
+    //     defaultValue: 0,
+    // }),
+
+    scheduleStatus: attr( String, {
+        key: 'status',
+        defaultValue: 'confirmed',
     }),
 
-    showAsFree: attr( Boolean, {
-        defaultValue: false
+    freeBusyStatus: attr( String, {
+        defaultValue: 'busy',
     }),
 
     replyTo: attr( Object, {
-        defaultValue: null
+        defaultValue: null,
     }),
 
     participants: attr( Object, {
-        defaultValue: null
+        defaultValue: null,
     }),
+
+    // --- JMAP Scheduling
 
     // The id for the calendar owner's participant
     participantId: attr( String, {
-        defaultValue: null
+        defaultValue: null,
     }),
 
     rsvp: function ( rsvp ) {
@@ -568,39 +570,47 @@ const CalendarEvent = O.Class({
         var you = ( participants && participantId &&
             participants[ participantId ] ) || null;
         if ( you && rsvp !== undefined ) {
-            participants = O.clone( participants );
+            participants = clone( participants );
             // Don't alert me if I'm not going!
             if ( rsvp === 'declined' ) {
                 this.set( 'useDefaultAlerts', false )
                     .set( 'alerts', null );
             }
             // Do alert me if I change my mind!
-            else if ( you.rsvp === 'declined' &&
+            else if ( you.rsvpResponse === 'declined' &&
                     this.get( 'alerts' ) === null ) {
                 this.set( 'useDefaultAlerts', true );
             }
-            participants[ participantId ].scheduleStatus = rsvp;
+            participants[ participantId ].rsvpResponse = rsvp;
             this.set( 'participants', participants );
         } else {
-            rsvp = you && you.scheduleStatus || '';
+            rsvp = you && you.rsvpResponse || '';
         }
         return rsvp;
     }.property( 'participants', 'participantId' ),
 
-    // --- Alerts ---
+    // --- Sharing
+
+    // privacy: attr( String, {
+    //     defaultValue: 'public',
+    // }),
+
+    // --- Alerts
 
     useDefaultAlerts: attr( Boolean, {
-        defaultValue: false
+        defaultValue: false,
     }),
 
     alerts: attr( Object, {
-        defaultValue: null
-    })
+        defaultValue: null,
+    }),
 });
+CalendarEvent.__guid__ = 'CalendarEvent';
+CalendarEvent.dataGroup = 'urn:ietf:params:jmap:calendars';
 
 // ---
 
-const dayToNumber = JMAP.RecurrenceRule.dayToNumber;
+const dayToNumber = RecurrenceRule.dayToNumber;
 
 const byNthThenDay = function ( a, b ) {
     var aNthOfPeriod = a.nthOfPeriod || 0;
@@ -609,7 +619,7 @@ const byNthThenDay = function ( a, b ) {
         ( dayToNumber[ a.day ] - dayToNumber[ b.day ] );
 };
 
-const numericArrayProps = [ 'byDate', 'byYearDay', 'byWeekNo', 'byHour', 'byMinute', 'bySecond', 'bySetPosition' ];
+const numericArrayProps = [ 'byMonthDay', 'byYearDay', 'byWeekNo', 'byHour', 'byMinute', 'bySecond', 'bySetPosition' ];
 
 const normaliseRecurrenceRule = function ( recurrenceRuleJSON ) {
     var byDay, byMonth, i, l, key, value;
@@ -622,14 +632,14 @@ const normaliseRecurrenceRule = function ( recurrenceRuleJSON ) {
     if ( recurrenceRuleJSON.firstDayOfWeek === 'monday' ) {
         delete recurrenceRuleJSON.firstDayOfWeek;
     }
-    if ( ( byDay = recurrenceRuleJSON.byDay ) ) {
+    if (( byDay = recurrenceRuleJSON.byDay )) {
         if ( byDay.length ) {
             byDay.sort( byNthThenDay );
         } else {
             delete recurrenceRuleJSON.byDay;
         }
     }
-    if ( ( byMonth = recurrenceRuleJSON.byMonth ) ) {
+    if (( byMonth = recurrenceRuleJSON.byMonth )) {
         if ( byMonth.length ) {
             byMonth.sort();
         } else {
@@ -652,85 +662,54 @@ const normaliseRecurrenceRule = function ( recurrenceRuleJSON ) {
     }
 };
 
-const alertOffsetFromJSON = function ( alerts ) {
-    if ( !alerts ) {
-        return null;
-    }
-    var id, alert;
-    for ( id in alerts ) {
-        alert = alerts[ id ];
-        alert.offset = new JMAP.Duration( alert.offset );
-    }
-};
-
-JMAP.calendar.replaceEvents = false;
-JMAP.calendar.handle( CalendarEvent, {
+calendar.replaceEvents = {};
+calendar.handle( CalendarEvent, {
 
     precedence: 2,
 
-    fetch: function ( ids ) {
-        this.callMethod( 'getCalendarEvents', {
-            ids: ids || null,
-        });
-    },
-
-    refresh: function ( ids, state ) {
-        if ( ids ) {
-            this.callMethod( 'getCalendarEvents', {
-                ids: ids,
-            });
-        } else {
-            this.callMethod( 'getCalendarEventUpdates', {
-                sinceState: state,
-                maxChanges: 100,
-            });
-            this.callMethod( 'getCalendarEvents', {
-                '#ids': {
-                    resultOf: this.getPreviousMethodId(),
-                    path: '/changed',
-                },
-            });
-        }
-    },
-
-    commit: 'setCalendarEvents',
+    fetch: 'CalendarEvent',
+    refresh: 'CalendarEvent',
+    commit: 'CalendarEvent',
 
     // ---
 
-    calendarEvents: function ( args ) {
+    'CalendarEvent/get': function ( args ) {
         var events = args.list;
         var l = events.length;
         var event, timeZoneId;
+        var accountId = args.accountId;
         while ( l-- ) {
             event = events[l];
             timeZoneId = event.timeZone;
             if ( timeZoneId ) {
-                JMAP.calendar.seenTimeZone( O.TimeZone[ timeZoneId ] );
+                calendar.seenTimeZone( TimeZone[ timeZoneId ] );
             }
             normaliseRecurrenceRule( event.recurrenceRule );
-            alertOffsetFromJSON( event.alerts );
         }
-        JMAP.calendar.propertyDidChange( 'usedTimeZones' );
-        this.didFetch( CalendarEvent, args, this.replaceEvents );
-        this.replaceEvents = false;
+        calendar.propertyDidChange( 'usedTimeZones' );
+        this.didFetch( CalendarEvent, args, !!this.replaceEvents[ accountId ] );
+        this.replaceEvents[ accountId ] = false;
     },
 
-    calendarEventUpdates: function ( args ) {
+    'CalendarEvent/changes': function ( args ) {
         const hasDataForChanged = true;
         this.didFetchUpdates( CalendarEvent, args, hasDataForChanged );
-        if ( args.hasMoreUpdates ) {
-            this.get( 'store' ).fetchAll( CalendarEvent, true );
+        if ( args.hasMoreChanges ) {
+            this.get( 'store' ).fetchAll( args.accountId, CalendarEvent, true );
         }
     },
 
-    error_getCalendarEventUpdates_cannotCalculateChanges: function () {
-        JMAP.calendar.flushCache();
+    'error_CalendarEvent/changes_cannotCalculateChanges': function ( _, __, reqArgs ) {
+        var accountId = reqArgs.accountId;
+        calendar.flushCache( accountId );
     },
 
-    calendarEventsSet: function ( args ) {
+    'CalendarEvent/set': function ( args ) {
         this.didCommit( CalendarEvent, args );
     },
 });
+
+// --- Export
 
 JMAP.CalendarEvent = CalendarEvent;
 

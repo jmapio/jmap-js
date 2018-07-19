@@ -1,45 +1,49 @@
 // -------------------------------------------------------------------------- \\
 // File: Auth.js                                                              \\
 // Module: API                                                                \\
-// Requires: SHA-256, namespace.js                                            \\
+// Requires: namespace.js                                                     \\
 // -------------------------------------------------------------------------- \\
 
-/*global O, JMAP, JSON, jsSHA */
+/*global O, JMAP */
 
 'use strict';
 
 ( function ( JMAP ) {
 
-const base64encode = function ( object ) {
-    return btoa( JSON.stringify( object ) );
-};
+const MAIL_DATA = 'urn:ietf:params:jmap:mail';
+const CONTACTS_DATA = 'urn:ietf:params:jmap:contacts';
+const CALENDARS_DATA = 'urn:ietf:params:jmap:calendars';
 
-const b64tob64url = function ( string ) {
-    return string
-        .replace( /\=/g, '' )
-        .replace( /\+/g, '-' )
-        .replace( /\//g, '_' );
-};
-
-const b64urltob64 = function ( string ) {
-    return string
-        .replace( /\-/g, '+' )
-        .replace( /\_/g, '/' );
-};
-
-// ---
-
-JMAP.auth = new O.Object({
+const auth = new O.Object({
 
     isAuthenticated: false,
 
     username: '',
-    accessToken: '',
-    signingId: '',
-    signingKey: '',
 
     accounts: {},
-    capabilities: {},
+    primaryAccounts: {},
+    capabilities: {
+        'urn:ietf:params:jmap:core': {
+            maxSizeUpload: 50000000,
+            maxConcurrentUpload: 10,
+            maxSizeRequest: 5000000,
+            maxConcurrentRequests: 8,
+            maxCallsInRequest: 32,
+            maxObjectsInGet: 1024,
+            maxObjectsInSet: 1024,
+            collationAlgorithms: [
+                'i;ascii-numeric',
+                'i;ascii-casemap',
+            ],
+        },
+        'urn:ietf:params:jmap:mail': {
+            maxSizeAttachmentsPerEmail: 50000000,
+            maxMailboxesPerEmail: 1024,
+            maxDelayedSend: 0,
+            emailListSortOptions: [ 'receivedAt' ],
+            submissionExtensions: [],
+        },
+    },
 
     authenticationUrl: '',
     apiUrl: '',
@@ -47,127 +51,45 @@ JMAP.auth = new O.Object({
     uploadUrl: '',
     eventSourceUrl: '',
 
-    _isFetchingEndPoints: false,
+    MAIL_DATA: MAIL_DATA,
+    CONTACTS_DATA: CONTACTS_DATA,
+    CALENDARS_DATA: CALENDARS_DATA,
 
-    defaultAccountId: function () {
+    getAccountId: function ( isPrimary, dataGroup ) {
+        var primaryAccountId = this.get( 'primaryAccounts' )[ dataGroup ];
+        if ( isPrimary ) {
+            return primaryAccountId || null;
+        }
         var accounts = this.get( 'accounts' );
         var id;
         for ( id in accounts ) {
-            if ( accounts[ id ].isPrimary ) {
+            if ( id !== primaryAccountId &&
+                    accounts[ id ].hasDataFor.contains( dataGroup ) ) {
                 return id;
             }
         }
         return null;
-    }.property( 'accounts' ),
-
-    // ---
-
-    signUrl: function ( url ) {
-        var header = b64tob64url( base64encode({
-            alg: 'HS256',
-            typ: 'JWT'
-        }));
-        var payload = b64tob64url( base64encode({
-            iss: this.get( 'signingId' ),
-            sub: url.replace( /[?#].*/, '' ),
-            iat: Math.floor( Date.now() / 1000 )
-        }));
-        var token = header + '.' + payload;
-        var signingKey = this.get( 'signingKey' );
-        var signature = signingKey ?
-            '.' + b64tob64url(
-                new jsSHA( 'SHA-256', 'TEXT' )
-                    .setHMACKey( b64urltob64( signingKey ), 'B64' )
-                    .update( token )
-                    .getHMAC( 'B64' )
-            ) :
-            '';
-        return url +
-            ( url.contains( '?' ) ? '&' : '?' ) +
-            'access_token=' + token + signature;
     },
-
-    getUrlForBlob: function ( accountId, blobId, name ) {
-        if ( !accountId ) {
-            accountId = this.get( 'defaultAccountId' );
-        }
-        return this.signUrl(
-            this.get( 'downloadUrl' )
-                .replace( '{accountId}', encodeURIComponent( accountId ) )
-                .replace( '{blobId}', encodeURIComponent( blobId ) )
-                .replace( '{name}', encodeURIComponent( name || '' ) )
-        );
-    },
-
-    blobUrlRegExp: function () {
-        return new RegExp( '^' +
-            this.get( 'downloadUrl' ).escapeRegExp()
-                .replace( '{accountId}'.escapeRegExp(), '.*?' )
-                .replace( '{blobId}'.escapeRegExp(), '(.*?)' )
-                .replace( '{name}'.escapeRegExp(), '.*?' )
-        );
-    }.property( 'proxyUrl' ),
 
     // ---
 
     didAuthenticate: function ( data ) {
+        // This beginPropertyChanges is functional, as updateAccounts in
+        // connections.js needs both accounts and primaryAccounts to be set,
+        // but only observes accounts—so we must ensure primaryAccounts is set.
+        this.beginPropertyChanges();
         for ( var property in data ) {
-            if ( property in this && typeof this[ property ] !== 'function' ) {
+            if ( typeof this[ property ] !== 'function' ) {
                 this.set( property, data[ property ] );
             }
         }
-        this.set( 'isAuthenticated', !!data.accessToken );
+        this.set( 'isAuthenticated', true );
+        this.endPropertyChanges();
 
         this._awaitingAuthentication.forEach( function ( connection ) {
             connection.send();
         });
         this._awaitingAuthentication.length = 0;
-
-        return this;
-    },
-
-    refindEndpoints: function () {
-        if ( this._isFetchingEndPoints || !this.get( 'isAuthenticated' ) ) {
-            return this;
-        }
-        this._isFetchingEndPoints = true;
-
-        var auth = this;
-        new O.HttpRequest({
-            timeout: 45000,
-            method: 'GET',
-            url: this.get( 'authenticationUrl' ),
-            headers: {
-                'Authorization': 'Bearer ' + auth.get( 'accessToken' )
-            },
-            withCredentials: true,
-            responseType: 'json',
-            success: function ( event ) {
-                auth.didAuthenticate( event.data );
-            }.on( 'io:success' ),
-            failure: function ( event ) {
-                switch ( event.status ) {
-                case 403: // Unauthorized
-                    auth.didLoseAuthentication();
-                    break;
-                case 404: // Not Found
-                    // Notify user?
-                    break;
-                case 500: // Internal Server Error
-                    // Notify user?
-                    break;
-                case 503: // Service Unavailable
-                    this.retry();
-                }
-            }.on( 'io:failure' ),
-            retry: function () {
-                O.RunLoop.invokeAfterDelay( auth.refindEndpoints, 30000, auth );
-            }.on( 'io:abort' ),
-            cleanup: function () {
-                this.destroy();
-                auth._isFetchingEndPoints = false;
-            }.on( 'io:end' )
-        }).send();
 
         return this;
     },
@@ -193,7 +115,7 @@ JMAP.auth = new O.Object({
                 !this._failedConnections.contains( connection ) ) {
             return true;
         }
-        if ( !isAuthenticated || this._isFetchingEndPoints ) {
+        if ( !isAuthenticated || this._isFetchingSession ) {
             this._awaitingAuthentication.include( connection );
         }
         return false;
@@ -252,5 +174,9 @@ JMAP.auth = new O.Object({
         });
     }
 });
+
+// --- Export
+
+JMAP.auth = auth;
 
 }( JMAP ) );

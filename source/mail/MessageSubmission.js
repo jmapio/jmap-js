@@ -1,7 +1,7 @@
 // -------------------------------------------------------------------------- \\
 // File: MessageSubmission.js                                                 \\
 // Module: MailModel                                                          \\
-// Requires: API, Message.js, Thread.js, Identity.js                          \\
+// Requires: API, Mailbox.js, Message.js, Thread.js, Identity.js              \\
 // -------------------------------------------------------------------------- \\
 
 /*global O, JMAP */
@@ -10,17 +10,20 @@
 
 ( function ( JMAP ) {
 
+const Class = O.Class;
 const Record = O.Record;
 const attr = Record.attr;
 
+const mail = JMAP.mail;
 const Identity = JMAP.Identity;
 const Message = JMAP.Message;
 const Thread = JMAP.Thread;
+const Mailbox = JMAP.Mailbox;
 const makeSetRequest = JMAP.Connection.makeSetRequest;
 
 // ---
 
-const MessageSubmission = O.Class({
+const MessageSubmission = Class({
 
     Extends: Record,
 
@@ -31,7 +34,7 @@ const MessageSubmission = O.Class({
 
     message: Record.toOne({
         Type: Message,
-        key: 'messageId',
+        key: 'emailId',
     }),
 
     thread: Record.toOne({
@@ -45,6 +48,7 @@ const MessageSubmission = O.Class({
     }),
 
     sendAt: attr( Date, {
+        toJSON: Date.toUTCJSON,
         noSync: true,
     }),
 
@@ -66,29 +70,35 @@ const MessageSubmission = O.Class({
     // Not a real JMAP property; stripped before sending to server.
     onSuccess: attr( Object ),
 });
+MessageSubmission.__guid__ = 'EmailSubmission';
+MessageSubmission.dataGroup = 'urn:ietf:params:jmap:mail';
 
-MessageSubmission.makeEnvelope = function ( message ) {
+MessageSubmission.makeEnvelope = function ( message, extraRecipients ) {
     var sender = message.get( 'sender' );
     var mailFrom = {
-        email: sender ?
-            sender.email :
+        email: sender && sender[0] ?
+            sender[0].email :
             message.get( 'fromEmail' ),
         parameters: null,
     };
+    var rcptTo = [];
     var seen = {};
-    var rcptTo = [ 'to', 'cc', 'bcc' ].reduce( function ( rcptTo, header ) {
+    var addAddress = function ( address ) {
+        var email = address.email;
+        if ( email && !seen[ email ] ) {
+            seen[ email ] = true;
+            rcptTo.push({ email: email, parameters: null });
+        }
+    };
+    [ 'to', 'cc', 'bcc' ].forEach( function ( header ) {
         var addresses = message.get( header );
         if ( addresses ) {
-            addresses.forEach( function ( address ) {
-                var email = address.email;
-                if ( email && !seen[ email ] ) {
-                    seen[ email ] = true;
-                    rcptTo.push({ email: email, parameters: null });
-                }
-            });
+            addresses.forEach( addAddress );
         }
-        return rcptTo;
-    }, [] );
+    });
+    if ( extraRecipients ) {
+        extraRecipients.forEach( addAddress );
+    }
     return {
         mailFrom: mailFrom,
         rcptTo: rcptTo,
@@ -96,127 +106,130 @@ MessageSubmission.makeEnvelope = function ( message ) {
 };
 
 
-JMAP.mail.handle( MessageSubmission, {
+mail.handle( MessageSubmission, {
 
     precedence: 3,
 
-    fetch: function ( ids ) {
-        this.callMethod( 'getMessageSubmissions', {
+    fetch: function ( accountId, ids ) {
+        this.callMethod( 'EmailSubmission/get', {
+            accountId: accountId,
             ids: ids || [],
         });
     },
 
-    refresh: function ( ids, state ) {
-        if ( ids ) {
-            this.callMethod( 'getMessageSubmissions', {
-                ids: ids,
-            });
-        } else {
-            this.callMethod( 'getMessageSubmissionUpdates', {
-                sinceState: state,
-                maxChanges: 50,
-            });
-            this.callMethod( 'getMessageSubmissions', {
-                '#ids': {
-                    resultOf: this.getPreviousMethodId(),
-                    path: '/changed',
-                },
-            });
-        }
-    },
+    refresh: 'EmailSubmission',
 
     commit: function ( change ) {
         var store = this.get( 'store' );
-        var args = makeSetRequest( change );
+        var args = makeSetRequest( change, false );
 
         // TODO: Prevent double sending if dodgy connection
         // if ( Object.keys( args.create ).length ) {
         //     args.ifInState = change.state;
         // }
 
-        var onSuccessUpdateMessage = {};
-        var onSuccessDestroyMessage = {};
+        var onSuccessUpdateEmail = {};
+        var onSuccessDestroyEmail = [];
         var create = args.create;
         var update = args.update;
         var id, submission;
 
-        var draftsId = this.getMailboxIdForRole( 'drafts' );
-        var sentId = this.getMailboxIdForRole( 'sent' );
+        var accountId = change.accountId;
+        var drafts = mail.getMailboxForRole( accountId, 'drafts' );
+        var sent = mail.getMailboxForRole( accountId, 'sent' );
         var updateMessage = {};
-        updateMessage[ 'mailboxIds/' + sentId ] = null;
-        updateMessage[ 'mailboxIds/' + draftsId ] = true;
-        updateMessage[ 'keywords/$Draft' ] = true;
+        if ( drafts && sent ) {
+            updateMessage[ 'mailboxIds/' + sent.get( 'id' ) ] = null;
+            updateMessage[ 'mailboxIds/' + drafts.get( 'id' ) ] = true;
+        }
+        updateMessage[ 'keywords/$draft' ] = true;
 
-        // On create move from drafts, remove $Draft keyword
+        // On create move from drafts, remove $draft keyword
         for ( id in create ) {
             submission = create[ id ];
             if ( submission.onSuccess === null ) {
-                args.onSuccessDestroyMessage = onSuccessDestroyMessage;
-                onSuccessDestroyMessage.push( '#' + id );
+                args.onSuccessDestroyEmail = onSuccessDestroyEmail;
+                onSuccessDestroyEmail.push( '#' + id );
             } else if ( submission.onSuccess ) {
-                args.onSuccessUpdateMessage = onSuccessUpdateMessage;
-                onSuccessUpdateMessage[ '#' + id ] = submission.onSuccess;
+                args.onSuccessUpdateEmail = onSuccessUpdateEmail;
+                onSuccessUpdateEmail[ '#' + id ] = submission.onSuccess;
             }
             delete submission.onSuccess;
         }
 
-        // On unsend, move back to drafts, set $Draft keyword.
+        // On unsend, move back to drafts, set $draft keyword.
         for ( id in update ) {
             submission = update[ id ];
             if ( submission.undoStatus === 'canceled' ) {
-                args.onSuccessUpdateMessage = onSuccessUpdateMessage;
-                onSuccessUpdateMessage[ submission.id ] = updateMessage;
+                args.onSuccessUpdateEmail = onSuccessUpdateEmail;
+                onSuccessUpdateEmail[ submission.id ] = updateMessage;
             }
         }
 
-        this.callMethod( 'setMessageSubmissions', args );
-        if ( args.onSuccessUpdateMessage || args.onSuccessDestroyMessage ) {
-            this.fetchAllRecords( Message, store.getTypeState( Message ) );
+        this.callMethod( 'EmailSubmission/set', args );
+        if ( args.onSuccessUpdateEmail || args.onSuccessDestroyEmail ) {
+            this.fetchAllRecords(
+                accountId, Message, store.getTypeState( accountId, Message ) );
+            this.fetchAllRecords(
+                accountId, Mailbox, store.getTypeState( accountId, Mailbox ) );
         }
     },
 
     // ---
 
-    messageSubmissions: function ( args ) {
+    'EmailSubmission/get': function ( args ) {
         this.didFetch( MessageSubmission, args );
     },
 
-    messageSubmissionUpdates: function ( args ) {
+    'EmailSubmission/changes': function ( args ) {
         const hasDataForChanged = true;
         this.didFetchUpdates( MessageSubmission, args, hasDataForChanged );
-        if ( args.hasMoreUpdates ) {
-            this.get( 'store' ).fetchAll( MessageSubmission, true );
+        if ( args.hasMoreChanges ) {
+            this.get( 'store' )
+                .fetchAll( args.accountId, MessageSubmission, true );
         }
     },
 
-    error_getMessageSubmissionUpdates_cannotCalculateChanges: function ( /* args */ ) {
+    'error_EmailSubmission/changes_cannotCalculateChanges': function ( _, __, reqArgs ) {
         var store = this.get( 'store' );
+        var accountId = reqArgs.accountId;
         // All our data may be wrong. Unload if possible, otherwise mark
         // obsolete.
         store.getAll( MessageSubmission ).forEach( function ( submission ) {
-            if ( !store.unloadRecord( submission.get( 'storeKey' ) ) ) {
-                submission.setObsolete();
+            if ( submission.get( 'accountId' ) === accountId ) {
+                if ( !store.unloadRecord( submission.get( 'storeKey' ) ) ) {
+                    submission.setObsolete();
+                }
             }
         });
         // Tell the store we're now in the new state.
         store.sourceDidFetchUpdates(
+            accountId,
             MessageSubmission,
             null,
             null,
-            store.getTypeState( MessageSubmission ),
+            store.getTypeState( accountId, MessageSubmission ),
             ''
         );
 
     },
 
-    messageSubmissionsSet: function ( args ) {
+    'EmailSubmission/set': function ( args ) {
         this.didCommit( MessageSubmission, args );
     },
 
-    error_setMessageSubimssions_stateMismatch: function () {
-        // TODO: Fire error on all creates, to check and try again.
+    'error_EmailSubmission/set_stateMismatch': function () {
+        // TODO
+        // store.sourceDidNotCreate( storeKeys, false,
+        //     storeKeys.map( function () { return { type: 'stateMismatch' }
+        // }) );
+        // 1. Fetch EmailSubmission/changes (inc. fetch records)
+        // 2. Check if any of these are sending the same message
+        // 3. If not retry. If yes, destroy?
     },
 });
+
+// --- Export
 
 JMAP.MessageSubmission = MessageSubmission;
 
