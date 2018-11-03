@@ -24,12 +24,10 @@ const Message = JMAP.Message;
 
 // ---
 
-const statusIsFetched = function ( status ) {
+const statusIsFetched = function ( store, storeKey ) {
+    var status = store.getStatus( storeKey );
     return ( status & READY ) &&
         ( !( status & OBSOLETE ) || ( status & LOADING ) );
-};
-const isFetched = function ( record ) {
-    return statusIsFetched( record.get( 'status' ) );
 };
 const refreshIfNeeded = function ( record ) {
     const status = record.get( 'status' );
@@ -76,7 +74,7 @@ const MessageList = Class({
         for ( ; i < l; i += 1 ) {
             messageSK = storeKeys[i];
             // No message, or out-of-date
-            if ( !statusIsFetched( store.getStatus( messageSK ) ) ) {
+            if ( !messageSK || !statusIsFetched( store, messageSK ) ) {
                 return false;
             }
             if ( collapseThreads ) {
@@ -84,11 +82,14 @@ const MessageList = Class({
                                 .getData()
                                 .threadId;
                 // No thread, or out-of-date
-                if ( !statusIsFetched( store.getStatus( threadSK ) ) ) {
+                if ( !statusIsFetched( store, threadSK ) ) {
                     return false;
                 }
                 thread = store.getRecordFromStoreKey( threadSK );
-                return thread.get( 'messages' ).every( isFetched );
+                if ( !thread.getData().emailIds.every(
+                        statusIsFetched.bind( null, store ) ) ) {
+                    return false;
+                }
             }
         }
         return true;
@@ -200,7 +201,9 @@ JMAP.mail.handle( MessageList, {
         var canGetDeltaUpdates = query.get( 'canGetDeltaUpdates' );
         var queryState = query.get( 'queryState' );
         var request = query.sourceWillFetchQuery();
+        var refresh = request.refresh;
         var hasMadeRequest = false;
+        var isEmpty = ( query.get( 'status' ) & EMPTY );
 
         var fetchThreads = function () {
             this.callMethod( 'Thread/get', {
@@ -222,7 +225,7 @@ JMAP.mail.handle( MessageList, {
             });
         }.bind( this );
 
-        if ( canGetDeltaUpdates && queryState && request.refresh ) {
+        if ( canGetDeltaUpdates && queryState && refresh ) {
             var storeKeys = query.getStoreKeys();
             var length = storeKeys.length;
             var upToId = ( length === query.get( 'length' ) ) ?
@@ -236,6 +239,7 @@ JMAP.mail.handle( MessageList, {
                 upToId: upToId ?
                     this.get( 'store' ).getIdFromStoreKey( upToId ) : null,
                 maxChanges: 25,
+                calculateTotal: true,
             });
             this.callMethod( 'Email/get', {
                 accountId: accountId,
@@ -256,8 +260,10 @@ JMAP.mail.handle( MessageList, {
             this.addCallback( request.callback );
         }
 
+        var calculateTotal = !!( where && where.inMailbox ) ||
+            ( !isEmpty && !query.get( 'hasTotal' ) ) ||
+            ( !canGetDeltaUpdates && !!refresh );
         var get = function ( start, count, anchor, offset, fetchData ) {
-            hasMadeRequest = true;
             this.callMethod( 'Email/query', {
                 accountId: accountId,
                 filter: where,
@@ -267,7 +273,10 @@ JMAP.mail.handle( MessageList, {
                 anchor: anchor,
                 anchorOffset: offset,
                 limit: count,
+                calculateTotal: calculateTotal,
             });
+            hasMadeRequest = true;
+            calculateTotal = false;
             if ( fetchData ) {
                 this.callMethod( 'Email/get', {
                     accountId: accountId,
@@ -296,20 +305,54 @@ JMAP.mail.handle( MessageList, {
             this.addCallback( req[1] );
         }, this );
 
-        if ( ( ( query.get( 'status' ) & EMPTY ) &&
-                !request.records.length ) ||
-             ( !canGetDeltaUpdates && !hasMadeRequest && request.refresh ) ) {
+        if ( ( isEmpty && !request.records.length ) ||
+             ( !canGetDeltaUpdates && !hasMadeRequest && refresh ) ) {
             get( 0, query.get( 'windowSize' ), undefined, undefined, true );
         }
     },
 
     // ---
 
-    'Email/query': function ( args ) {
+    'Email/query': function ( args, _, reqArgs ) {
         const query = this.get( 'store' ).getQuery( getId( args ) );
+        var total, hasTotal, numIds;
         if ( query ) {
+            if ( args.total === undefined ) {
+                total = query.get( 'length' );
+                hasTotal = query.get( 'hasTotal' ) && total !== null;
+                if ( !hasTotal ) {
+                    numIds = args.ids.length;
+                    total = args.position + numIds;
+                    if ( numIds < reqArgs.limit ) {
+                        hasTotal = true;
+                    } else {
+                        total += 1;
+                    }
+                }
+                args.total = total;
+            } else {
+                hasTotal = true;
+            }
+            query.set( 'hasTotal', hasTotal );
             query.set( 'canGetDeltaUpdates', args.canCalculateChanges );
             query.sourceDidFetchIds( args );
+        }
+    },
+
+    // We don't care if the anchor isn't found - this was just looking for an
+    // index, and this means it's not in the query.
+    'error_Email/query_anchorNotFound': function () {},
+
+    // Any other error,
+    // e.g. unsupportedFilter, unsupportedSort, invalidArguments etc.
+    'error_Email/query': function ( args, requestName, requestArgs ) {
+        var query = this.get( 'store' ).getQuery( getId( requestArgs ) );
+        if ( query ) {
+            query.sourceDidFetchIds({
+                ids: [],
+                position: 0,
+                total: 0,
+            });
         }
     },
 
@@ -320,22 +363,25 @@ JMAP.mail.handle( MessageList, {
         }
     },
 
-    'error_Email/queryChanges_cannotCalculateChanges': function ( _, __, reqArgs ) {
-        var query = this.get( 'store' ).getQuery( getId( reqArgs ) );
-        if ( query ) {
-            query.reset();
+    'error_Email/queryChanges_tooManyChanges': function ( args, requestName, requestArgs ) {
+        if ( requestArgs.maxChanges === 25 ) {
+            // Try again without fetching the emails
+            this.callMethod( 'Email/queryChanges',
+                Object.assign( {}, requestArgs, {
+                    maxChanges: 250,
+                })
+            );
+        } else {
+            this.response[ 'error_Email/queryChanges' ]
+                .call( this, args, requestName, requestArgs );
         }
     },
 
-    'error_Email/queryChanges_tooManyChanges': function ( _, __, reqArgs ) {
-        if ( reqArgs.maxChanges === 25 ) {
-            // Try again without fetching the emails
-            this.callMethod( 'Email/queryChanges', Object.assign( {}, reqArgs, {
-                maxChanges: 250,
-            }));
-        } else {
-            this.response[ 'error_Email/queryChanges_cannotCalculateChanges' ]
-                .call( this,  _, __, reqArgs );
+    // Any other error, e.g. cannotCalculateChanges, invalidArguments etc.
+    'error_Email/queryChanges': function ( _, __, reqArgs ) {
+        var query = this.get( 'store' ).getQuery( getId( reqArgs ) );
+        if ( query ) {
+            query.reset();
         }
     },
 

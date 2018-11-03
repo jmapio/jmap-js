@@ -11,6 +11,7 @@
 ( function ( JMAP ) {
 
 const clone = O.clone;
+const guid = O.guid;
 const mixin = O.mixin;
 const Class = O.Class;
 const Obj = O.Object;
@@ -20,10 +21,17 @@ const StoreUndoManager = O.StoreUndoManager;
 
 const auth = JMAP.auth;
 const store = JMAP.store;
+const calendar = JMAP.calendar;
 const Calendar = JMAP.Calendar;
 const CalendarEvent = JMAP.CalendarEvent;
 const RecurrenceRule = JMAP.RecurrenceRule;
 const CALENDARS_DATA = auth.CALENDARS_DATA;
+
+// ---
+
+const TIMED_OR_ALL_DAY = 0
+const ONLY_ALL_DAY = 1;
+const ONLY_TIMED = -1;
 
 // ---
 
@@ -37,7 +45,7 @@ const nonRepeatingEvents = new Obj({
 
     buildIndex: function () {
         var index = this.index = {};
-        var timeZone = JMAP.calendar.get( 'timeZone' );
+        var timeZone = calendar.get( 'timeZone' );
         var storeKeys = store.findAll( CalendarEvent, function ( data ) {
             return !data.recurrenceRule && !data.recurrenceOverrides;
         });
@@ -45,7 +53,7 @@ const nonRepeatingEvents = new Obj({
         var l = storeKeys.length;
         var event, timestamp, end, events;
         for ( ; i < l; i += 1 ) {
-            event = store.materialiseRecord( storeKeys[i], CalendarEvent );
+            event = store.materialiseRecord( storeKeys[i] );
             timestamp = +event.getStartInTimeZone( timeZone );
             timestamp = timestamp - timestamp.mod( 24 * 60 * 60 * 1000 );
             end = +event.getEndInTimeZone( timeZone );
@@ -82,7 +90,7 @@ const repeatingEvents = new Obj({
         var l = storeKeys.length;
         var records = new Array( l );
         for ( ; i < l; i += 1 ) {
-            records[i] = store.materialiseRecord( storeKeys[i], CalendarEvent );
+            records[i] = store.materialiseRecord( storeKeys[i] );
         }
         return records;
     }.property(),
@@ -94,13 +102,11 @@ const repeatingEvents = new Obj({
         this.index = null;
     },
 
-    buildIndex: function ( date ) {
-        var start = this.start = new Date( date ).subtract( 60 );
-        var end = this.end = new Date( date ).add( 120 );
+    buildIndex: function ( start, end ) {
+        var index = this.index || ( this.index = {} );
         var startIndexStamp = +start;
         var endIndexStamp = +end;
-        var index = this.index = {};
-        var timeZone = JMAP.calendar.get( 'timeZone' );
+        var timeZone = calendar.get( 'timeZone' );
         var records = this.get( 'records' );
         var i = 0;
         var l = records.length;
@@ -114,8 +120,17 @@ const repeatingEvents = new Obj({
                 occurrence = occurs[j];
                 timestamp = +occurrence.getStartInTimeZone( timeZone );
                 timestamp = timestamp - timestamp.mod( 24 * 60 * 60 * 1000 );
-                timestamp = Math.max( startIndexStamp, timestamp );
+                // If starts after end of range being added to index, ignore
+                if ( timestamp >= endIndexStamp ) {
+                    continue;
+                }
                 endStamp = +occurrence.getEndInTimeZone( timeZone );
+                // If ends before start of range being added to index, ignore
+                if ( endStamp < startIndexStamp ) {
+                    continue;
+                }
+                // Only add to days within index range
+                timestamp = Math.max( startIndexStamp, timestamp );
                 endStamp = Math.min( endIndexStamp, endStamp );
                 do {
                     events = index[ timestamp ] || ( index[ timestamp ] = [] );
@@ -129,10 +144,22 @@ const repeatingEvents = new Obj({
     },
 
     getEventsForDate: function ( date ) {
+        var start = this.start;
+        var end = this.end;
         var timestamp = +date;
         timestamp = timestamp - timestamp.mod( 24 * 60 * 60 * 1000 );
-        if ( !this.index || date < this.start || date >= this.end ) {
-            this.buildIndex( date );
+        if ( !this.index ) {
+            start = this.start = new Date( date ).subtract( 60 );
+            end = this.end = new Date( date ).add( 120 );
+            this.buildIndex( start, end );
+        } else if ( date < start ) {
+            end = start;
+            start = this.start = new Date( date ).subtract( 120 );
+            this.buildIndex( start, end );
+        } else if ( date >= this.end ) {
+            start = end;
+            end = this.end = new Date( date ).add( 120 );
+            this.buildIndex( start, end );
         }
         return this.index[ timestamp ] || null;
     },
@@ -150,14 +177,16 @@ const NO_EVENTS = [];
 const eventSources = [ nonRepeatingEvents, repeatingEvents ];
 const sortByStartInTimeZone = function ( timeZone ) {
     return function ( a, b ) {
-        var aStart = a.getStartInTimeZone( timeZone ),
-            bStart = b.getStartInTimeZone( timeZone );
-        return aStart < bStart ? -1 : aStart > bStart ? 1 : 0;
+        var aStart = a.getStartInTimeZone( timeZone );
+        var bStart = b.getStartInTimeZone( timeZone );
+        return aStart < bStart ? -1 : aStart > bStart ? 1 :
+            a.get( 'uid' ) < b.get( 'uid' ) ? -1 : 1;
     };
 };
 
-const getEventsForDate = function ( date, timeZone, allDay ) {
+const findEventsForDate = function ( date, allDay, filter ) {
     var l = eventSources.length;
+    var timeZone = calendar.get( 'timeZone' );
     var i, results, events, showDeclined;
     for ( i = 0; i < l; i += 1 ) {
         events = eventSources[i].getEventsForDate( date );
@@ -167,17 +196,22 @@ const getEventsForDate = function ( date, timeZone, allDay ) {
     }
 
     if ( results ) {
-        showDeclined = JMAP.calendar.get( 'showDeclined' );
+        showDeclined = calendar.get( 'showDeclined' );
 
         // Filter out all-day and invisible calendars.
         results = results.filter( function ( event ) {
-            return event.get( 'calendar' ).get( 'isVisible' ) &&
+            return event.get( 'calendar' ).get( 'isEventsShown' ) &&
                 ( showDeclined || event.get( 'rsvp' ) !== 'declined' ) &&
-                ( !allDay || event.get( 'isAllDay' ) === ( allDay > 0 ) );
+                ( !allDay || event.get( 'isAllDay' ) === ( allDay > 0 ) ) &&
+                ( !filter || filter( event ) );
         });
 
         // And sort
-        results.sort( sortByStartInTimeZone( timeZone ) );
+        if ( results.length ) {
+            results.sort( sortByStartInTimeZone( timeZone ) );
+        } else {
+            results = null;
+        }
     }
 
     return results || NO_EVENTS;
@@ -185,30 +219,31 @@ const getEventsForDate = function ( date, timeZone, allDay ) {
 
 // ---
 
-const eventsLists = [];
+const indexObservers = {};
 
 const EventsList = Class({
 
     Extends: ObservableArray,
 
-    init: function ( date, allDay ) {
+    init: function ( date, allDay, where ) {
         this.date = date;
         this.allDay = allDay;
+        this.where = where;
 
-        eventsLists.push( this );
+        indexObservers[ guid( this ) ] = this;
 
         EventsList.parent.constructor.call( this,
-            getEventsForDate( date, JMAP.calendar.get( 'timeZone' ), allDay ));
+            findEventsForDate( date, allDay, where ) );
     },
 
     destroy: function () {
-        eventsLists.erase( this );
+        delete indexObservers[ guid( this ) ];
         EventsList.parent.destroy.call( this );
     },
 
     recalculate: function () {
-        return this.set( '[]', getEventsForDate(
-            this.date, JMAP.calendar.get( 'timeZone' ), this.allDay ));
+        return this.set( '[]',
+            findEventsForDate( this.date, this.allDay, this.where ) );
     },
 });
 
@@ -223,7 +258,7 @@ const now = new Date();
 const usedTimeZones = {};
 var editStore;
 
-mixin( JMAP.calendar, {
+mixin( calendar, {
 
     editStore: editStore = new NestedStore( store ),
 
@@ -274,9 +309,6 @@ mixin( JMAP.calendar, {
             toEditEvent = occurrence.clone( editStore );
         } else {
             toEditEvent = event.clone( editStore )
-                .set( 'replyTo', null )
-                .set( 'participants', null )
-                .set( 'participantId', null )
                 .set( 'start', occurrence.getOriginalForKey( 'start' ) );
         }
 
@@ -284,17 +316,17 @@ mixin( JMAP.calendar, {
         pastRelatedTo = event.get( 'relatedTo' );
         uidOfFirst = pastRelatedTo &&
             Object.keys( pastRelatedTo ).find( function ( uid ) {
-                return pastRelatedTo[ uid ].relation.contains( 'first' );
+                return pastRelatedTo[ uid ].relation.first;
             }) ||
             event.get( 'uid' );
 
         futureRelatedTo = {};
         futureRelatedTo[ uidOfFirst ] = {
-            relation: [ 'first' ],
+            relation: { first: true },
         };
         pastRelatedTo = pastRelatedTo ? clone( pastRelatedTo ) : {};
         pastRelatedTo[ toEditEvent.get( 'uid' ) ] = {
-            relation: [ 'next' ],
+            relation: { next: true },
         };
         toEditEvent.set( 'relatedTo', futureRelatedTo );
         event.set( 'relatedTo',  pastRelatedTo );
@@ -379,16 +411,18 @@ mixin( JMAP.calendar, {
     eventSources: eventSources,
     repeatingEvents: repeatingEvents,
     nonRepeatingEvents: nonRepeatingEvents,
+    indexObservers: indexObservers,
 
     loadingEventsStart: now,
     loadingEventsEnd: now,
     loadedEventsStart: now,
     loadedEventsEnd: now,
 
-    // allDay -> 0 (either), 1 (yes), -1 (no)
-    getEventsForDate: function ( date, allDay ) {
+    findEventsForDate: findEventsForDate,
+
+    getEventsForDate: function ( date, allDay, where ) {
         this.loadEvents( date );
-        return new EventsList( date, allDay );
+        return new EventsList( date, allDay, where || null );
     },
 
     fetchEventsInRangeForAccount: function ( accountId, after, before ) {
@@ -424,15 +458,34 @@ mixin( JMAP.calendar, {
         return this;
     },
 
+    loadEventsInRange: function ( start, end ) {
+        var loadingEventsStart = this.loadingEventsStart;
+        var loadingEventsEnd = this.loadingEventsEnd;
+        if ( start < loadingEventsStart ) {
+            this.fetchEventsInRange( start, loadingEventsStart, function () {
+                calendar.set( 'loadedEventsStart', start );
+            });
+            this.set( 'loadingEventsStart', start );
+        }
+        if ( end > loadingEventsEnd ) {
+            this.fetchEventsInRange( loadingEventsEnd, end, function () {
+                calendar.set( 'loadedEventsEnd', end );
+            });
+            this.set( 'loadingEventsEnd', end );
+        }
+        return this;
+    },
+
     loadEvents: function ( date ) {
         var loadingEventsStart = this.loadingEventsStart;
         var loadingEventsEnd = this.loadingEventsEnd;
-        var start, end;
+        var start = date;
+        var end = date;
         if ( loadingEventsStart === loadingEventsEnd ) {
             start = toUTCDay( date ).subtract( 16, 'week' );
             end = toUTCDay( date ).add( 48, 'week' );
             this.fetchEventsInRange( start, end, function () {
-                JMAP.calendar
+                calendar
                     .set( 'loadedEventsStart', start )
                     .set( 'loadedEventsEnd', end );
             });
@@ -444,20 +497,13 @@ mixin( JMAP.calendar, {
             start = toUTCDay( date < loadingEventsStart ?
                 date : loadingEventsStart
             ).subtract( 24, 'week' );
-            this.fetchEventsInRange( start, loadingEventsStart, function () {
-                JMAP.calendar.set( 'loadedEventsStart', start );
-            });
-            this.set( 'loadingEventsStart', start );
         }
         if ( date > +loadingEventsEnd - twelveWeeks ) {
             end = toUTCDay( date > loadingEventsEnd ?
                 date : loadingEventsEnd
             ).add( 24, 'week' );
-            this.fetchEventsInRange( loadingEventsEnd, end, function () {
-                JMAP.calendar.set( 'loadedEventsEnd', end );
-            });
-            this.set( 'loadingEventsEnd', end );
         }
+        return this.loadEventsInRange( start, end );
     },
 
     clearIndexes: function () {
@@ -467,7 +513,7 @@ mixin( JMAP.calendar, {
     }.observes( 'timeZone' ),
 
     recalculate: function () {
-        eventsLists.forEach( function ( eventsList ) {
+        Object.values( indexObservers ).forEach( function ( eventsList ) {
             eventsList.recalculate();
         });
     }.queue( 'before' ).observes( 'showDeclined' ),
@@ -488,11 +534,19 @@ mixin( JMAP.calendar, {
         }
         return this;
     },
-});
-store.on( Calendar, JMAP.calendar, 'recalculate' )
-     .on( CalendarEvent, JMAP.calendar, 'clearIndexes' );
 
-JMAP.calendar.handle( null, {
+    // ---
+
+    NO_EVENTS: NO_EVENTS,
+
+    TIMED_OR_ALL_DAY: TIMED_OR_ALL_DAY,
+    ONLY_ALL_DAY: ONLY_ALL_DAY,
+    ONLY_TIMED: ONLY_TIMED,
+});
+store.on( Calendar, calendar, 'recalculate' )
+     .on( CalendarEvent, calendar, 'clearIndexes' );
+
+calendar.handle( null, {
     'CalendarEvent/query': function () {
         // We don't care about the list, we only use it to fetch the
         // events we want. This may change with search in the future!

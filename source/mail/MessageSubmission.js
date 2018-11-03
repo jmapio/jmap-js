@@ -178,15 +178,14 @@ mail.handle( MessageSubmission, {
     // ---
 
     'EmailSubmission/get': function ( args ) {
-        this.didFetch( MessageSubmission, args );
+        this.didFetch( MessageSubmission, args, false );
     },
 
     'EmailSubmission/changes': function ( args ) {
         const hasDataForChanged = true;
         this.didFetchUpdates( MessageSubmission, args, hasDataForChanged );
         if ( args.hasMoreChanges ) {
-            this.get( 'store' )
-                .fetchAll( args.accountId, MessageSubmission, true );
+            this.fetchMoreChanges( args.accountId, MessageSubmission );
         }
     },
 

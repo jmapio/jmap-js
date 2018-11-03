@@ -9,9 +9,15 @@
 
 ( function ( JMAP ) {
 
+const Class = O.Class;
+
+// ---
+
 const durationFormat = /^P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/;
 
-const Duration = O.Class({
+const A_DAY = 24 * 60 * 60 * 1000;
+
+const Duration = Class({
     init: function ( durationInMS ) {
         this._durationInMS = durationInMS;
     },
@@ -25,26 +31,34 @@ const Duration = O.Class({
         var durationInMS = this._durationInMS;
         var quantity;
 
-        // Days. Also encompasses 0 duration. (P0D).
-        if ( !durationInMS || durationInMS >= 24 * 60 * 60 * 1000 ) {
-            quantity = Math.floor( durationInMS / ( 24 * 60 * 60 * 1000 ) );
-            output += quantity;
-            output += 'D';
-            durationInMS -= quantity * 24 * 60 * 60 * 1000;
+        // According to RFC3339 we can't mix weeks with other durations.
+        // We could mix days, but presume that anything that's not an exact
+        // number of days is a timed event and so better expressed just in
+        // hours, as this is not subject to time zone discontinuities.
+        if ( durationInMS >= A_DAY && durationInMS % A_DAY === 0 ) {
+            quantity = durationInMS / A_DAY;
+            if ( quantity % 7 === 0 ) {
+                output += quantity / 7;
+                output += 'W';
+            } else {
+                output += quantity;
+                output += 'D';
+            }
+            durationInMS = 0;
         }
 
         if ( durationInMS ) {
             output += 'T';
             switch ( true ) {
             // Hours
-            case durationInMS > 60 * 60 * 1000:
+            case durationInMS >= 60 * 60 * 1000:
                 quantity = Math.floor( durationInMS / ( 60 * 60 * 1000 ) );
                 output += quantity;
                 output += 'H';
                 durationInMS -= quantity * 60 * 60 * 1000;
                 /* falls through */
             // Minutes
-            case durationInMS > 60 * 1000: // eslint-disable-line no-fallthrough
+            case durationInMS >= 60 * 1000: // eslint-disable-line no-fallthrough
                 quantity = Math.floor( durationInMS / ( 60 * 1000 ) );
                 output += quantity;
                 output += 'M';
@@ -81,7 +95,9 @@ Duration.fromJSON = function ( value ) {
 
 Duration.ZERO = new Duration( 0 );
 Duration.AN_HOUR = new Duration( 60 * 60 * 1000 );
-Duration.A_DAY = new Duration( 24 * 60 * 60 * 1000 );
+Duration.A_DAY = new Duration( A_DAY );
+
+// --- Export
 
 JMAP.Duration = Duration;
 

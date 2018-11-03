@@ -11,7 +11,7 @@
 ( function ( JMAP ) {
 
 const loc = O.loc;
-const sortByProperties = O.sortByProperties;
+const i18n = O.i18n;
 const Class = O.Class;
 const RecordArray = O.RecordArray;
 const LocalQuery = O.LocalQuery;
@@ -25,6 +25,22 @@ const connection = JMAP.mail;
 const makeSetRequest = JMAP.Connection.makeSetRequest;
 
 // ---
+
+const bySortOrderRoleOrName = function ( a, b ) {
+    var aRole = a.role;
+    var bRole = b.role;
+    return (
+        a.sortOrder - b.sortOrder
+    ) || (
+        aRole === 'inbox' ? -1 :
+        bRole === 'inbox' ? 1 :
+        aRole && !bRole ? -1 :
+        bRole && !aRole ? 1 :
+        i18n.compare( a.name, b.name )
+    ) || (
+        a.id < b.id ? -1 : 1
+    );
+};
 
 const Mailbox = Class({
 
@@ -80,6 +96,7 @@ const Mailbox = Class({
             mayRename: true,
             mayDelete: true,
             maySubmit: true,
+            mayAdmin: true,
         },
         noSync: true
     }),
@@ -119,7 +136,7 @@ const Mailbox = Class({
                     return data.accountId === accountId &&
                         data.parentId === storeKey;
                 },
-                sortByProperties([ 'sortOrder', 'name' ])
+                bySortOrderRoleOrName
             ) :
             new RecordArray( store, Mailbox, [] );
     }.property().nocache(),
@@ -149,9 +166,10 @@ const Mailbox = Class({
                 LocalQuery, {
                     Type: Mailbox,
                     where: function ( data ) {
-                        return data.accountId === accountId && !data.parentId;
+                        return !data.parentId && data.accountId === accountId &&
+                            data.role !== 'xnotes';
                     },
-                    sort: [ 'sortOrder', 'name' ],
+                    sort: bySortOrderRoleOrName,
                 });
         var index = sub ? 0 :
                 siblings.indexOf( dest ) + ( where === 'next' ? 1 : 0 );
@@ -276,7 +294,7 @@ connection.handle( Mailbox, {
     'Mailbox/get': function ( args, _, reqArgs ) {
         const isAll = ( reqArgs.ids === null );
         const ignoreCounts = this.ignoreCountsForMailboxIds;
-        if ( ignoreCounts ) {
+        if ( ignoreCounts && args.list ) {
             const accountId = args.accountId;
             args.list.forEach( function ( item ) {
                 var mailbox = ignoreCounts[ accountId + '/' + item.id ];
@@ -295,7 +313,7 @@ connection.handle( Mailbox, {
         const hasDataForChanged = true;
         this.didFetchUpdates( Mailbox, args, hasDataForChanged );
         if ( args.hasMoreChanges ) {
-            this.get( 'store' ).fetchAll( args.accountId, Mailbox, true );
+            this.fetchMoreChanges( args.accountId, Mailbox );
         }
     },
 
@@ -309,6 +327,7 @@ connection.handle( Mailbox, {
         this.didCommit( Mailbox, args );
     },
 });
+Mailbox.bySortOrderRoleOrName = bySortOrderRoleOrName;
 
 // --- Export
 

@@ -82,7 +82,7 @@ JMAP.mail.handle( Identity, {
         const hasDataForChanged = true;
         this.didFetchUpdates( Identity, args, hasDataForChanged );
         if ( args.hasMoreChanges ) {
-            this.get( 'store' ).fetchAll( args.accountId, Identity, true );
+            this.fetchMoreChanges( args.accountId, Identity );
         }
     },
 

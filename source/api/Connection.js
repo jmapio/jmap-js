@@ -8,7 +8,7 @@
 
 'use strict';
 
-( function ( JMAP, undefined ) {
+( function ( JMAP, performance, undefined ) {
 
 const isEqual = O.isEqual;
 const loc = O.loc;
@@ -86,12 +86,13 @@ const makeUpdate = function ( primaryKey, update, noPatch, isCopy ) {
     const records = update.records;
     const changes = update.changes;
     const committed = update.committed;
+    const copyFromIds = update.copyFromIds;
     const updates = {};
     var record, change, previous, patches, i, l, key;
     for ( i = 0, l = records.length; i < l; i +=1 ) {
         record = records[i];
         change = changes[i];
-        previous = committed[i];
+        previous = noPatch ? null : committed[i];
         patches = {};
 
         for ( key in change ) {
@@ -104,7 +105,7 @@ const makeUpdate = function ( primaryKey, update, noPatch, isCopy ) {
             }
         }
         if ( isCopy ) {
-            patches[ primaryKey ] = record[ primaryKey ];
+            patches[ primaryKey ] = copyFromIds[i];
         }
 
         updates[ isCopy ? storeKeys[i] : record[ primaryKey ] ] = patches;
@@ -138,6 +139,8 @@ const handleProps = {
     commit: 'recordCommitters',
     query: 'queryFetchers',
 };
+
+const NO_RESPONSE = [ 'error', {}, '' ];
 
 /**
     Class: JMAP.Connection
@@ -199,6 +202,8 @@ const Connection = Class({
         // Map of accountId -> guid( Type ) -> Id -> true
         this._recordsToFetch = {};
 
+        this._timing = undefined;
+
         this.inFlightRemoteCalls = null;
         this.inFlightCallbacks = null;
         this.inFlightRequest = null;
@@ -207,6 +212,15 @@ const Connection = Class({
     },
 
     prettyPrint: false,
+
+    /**
+        Property: JMAP.Connection#sendTiming
+        Type: Object|null
+
+        If an object, these properties (from the performance API) for the
+        previous request will be sent with the next request
+    */
+    sendTiming: false,
 
     /**
         Property: JMAP.Connection#willRetry
@@ -243,7 +257,11 @@ const Connection = Class({
             event - {IOEvent}
     */
     ioDidSucceed: function ( event ) {
-        var methodResponses = event.data && event.data.methodResponses;
+        var data = event.data;
+        var methodResponses = data && data.methodResponses;
+        var sessionState = data && data.sessionState;
+        var sendTiming = this.get( 'sendTiming' );
+        var timing, entry, key;
         if ( !methodResponses ) {
             RunLoop.didError({
                 name: 'JMAP.Connection#ioDidSucceed',
@@ -261,6 +279,24 @@ const Connection = Class({
             this.get( 'inFlightCallbacks' ),
             this.get( 'inFlightRemoteCalls' )
         );
+
+        if ( sendTiming && performance && performance.getEntriesByName ) {
+            entry = performance
+                .getEntriesByName( event.target.get( 'url' ) ).last();
+            if ( entry ) {
+                timing = { id: event.headers[ 'x-request-id' ] };
+                for ( key in entry ) {
+                    if ( sendTiming[ key ] ) {
+                        timing[ key ] = entry[ key ];
+                    }
+                }
+            }
+        }
+        this._timing = timing;
+
+        if ( sessionState && sessionState !== auth.get( 'state' ) ) {
+            auth.fetchSession();
+        }
 
         this.set( 'inFlightRemoteCalls', null )
             .set( 'inFlightCallbacks', null );
@@ -303,14 +339,16 @@ const Connection = Class({
             break;
         // 404: Not Found
         case 404:
-            auth.fetchSessions()
+            auth.fetchSession()
                 .connectionWillSend( this );
             break;
         // 429: Rate Limited
-        // 503: Service Unavailable
+        // 502/503/504: Service Unavailable
         // Wait a bit then try again
         case 429:
-        case 503:
+        case 502: // Bad Gateway
+        case 503: // Service Unavailable
+        case 504: // Gateway Timeout
             auth.connectionFailed( this, 30 );
             break;
         // 500: Internal Server Error
@@ -426,16 +464,16 @@ const Connection = Class({
 
     commitType: function ( typeId, changes ) {
         var setRequest = makeSetRequest( changes, false );
-        var moveFromAccount, fromAccountId, toAccountId;
+        var moveFromAccount, fromAccountId, accountId;
         if ( setRequest ) {
             this.callMethod( typeId + '/set', setRequest );
         }
         if (( moveFromAccount = changes.moveFromAccount )) {
-            toAccountId = changes.accountId;
+            accountId = changes.accountId;
             for ( fromAccountId in moveFromAccount ) {
                 this.callMethod( typeId + '/copy', {
                     fromAccountId: fromAccountId,
-                    toAccountId: toAccountId,
+                    accountId: accountId,
                     create: makeUpdate(
                         changes.primaryKey,
                         moveFromAccount[ fromAccountId ],
@@ -510,6 +548,7 @@ const Connection = Class({
                 responseType: 'json',
                 data: JSON.stringify({
                     using: Object.keys( auth.get( 'capabilities' ) ),
+                    timing: this._timing,
                     methodCalls: remoteCalls,
                 }, null, this.get( 'prettyPrint' ) ? 2 : 0 ),
             }).send()
@@ -533,6 +572,7 @@ const Connection = Class({
     receive: function ( data, callbacks, remoteCalls ) {
         var handlers = this.response;
         var i, l, response, handler, tuple, id, callback, request;
+        var matchingResponse;
         for ( i = 0, l = data.length; i < l; i += 1 ) {
             response = data[i];
             handler = handlers[ response[0] ];
@@ -548,18 +588,18 @@ const Connection = Class({
         }
         // Invoke after bindings to ensure all data has propagated through.
         if (( l = callbacks.length )) {
+            matchingResponse = function ( call ) {
+                return call[2] === id;
+            };
             for ( i = 0; i < l; i += 1 ) {
                 tuple = callbacks[i];
                 id = tuple[0];
                 callback = tuple[1];
                 if ( id ) {
                     request = remoteCalls[+id];
-                    /* jshint ignore:start */
-                    response = data.filter( function ( call ) {
-                        return call[2] === id;
-                    });
-                    /* jshint ignore:end */
-                    callback = callback.bind( null, response, request );
+                    response = data.find( matchingResponse ) || NO_RESPONSE;
+                    callback = callback.bind( null,
+                        response[1], response[0], request[1] );
                 }
                 RunLoop.queueFn( 'middle', callback );
             }
@@ -589,7 +629,18 @@ const Connection = Class({
         var typesToRefresh, recordsToRefresh, typesToFetch, recordsToFetch;
         var accountId, typeId, id, req, state, ids, handler;
 
+        // Query Fetches: do first, as it may trigger records to fetch/refresh
+        this._queriesToFetch = {};
+        for ( id in _queriesToFetch ) {
+            req = _queriesToFetch[ id ];
+            handler = this.queryFetchers[ guid( req.constructor ) ];
+            if ( handler ) {
+                handler.call( this, req );
+            }
+        }
+
         // Record Refreshers
+        this._typesToRefresh = {};
         for ( accountId in _typesToRefresh ) {
             typesToRefresh = _typesToRefresh[ accountId ];
             if ( !accountId ) {
@@ -605,6 +656,8 @@ const Connection = Class({
                 }
             }
         }
+
+        this._recordsToRefresh = {};
         for ( accountId in _recordsToRefresh ) {
             recordsToRefresh = _recordsToRefresh[ accountId ];
             if ( !accountId ) {
@@ -621,16 +674,8 @@ const Connection = Class({
             }
         }
 
-        // Query Fetches
-        for ( id in _queriesToFetch ) {
-            req = _queriesToFetch[ id ];
-            handler = this.queryFetchers[ guid( req.constructor ) ];
-            if ( handler ) {
-                handler.call( this, req );
-            }
-        }
-
         // Record fetches
+        this._typesToFetch = {};
         for ( accountId in _typesToFetch ) {
             typesToFetch = _typesToFetch[ accountId ];
             if ( !accountId ) {
@@ -645,6 +690,8 @@ const Connection = Class({
                 }
             }
         }
+
+        this._recordsToFetch = {};
         for ( accountId in _recordsToFetch ) {
             recordsToFetch = _recordsToFetch[ accountId ];
             if ( !accountId ) {
@@ -664,12 +711,6 @@ const Connection = Class({
         // Any future requests will be added to a new queue.
         this._sendQueue = [];
         this._callbackQueue = [];
-
-        this._queriesToFetch = {};
-        this._typesToRefresh = {};
-        this._recordsToRefresh = {};
-        this._typesToFetch = {};
-        this._recordsToFetch = {};
 
         return [ sendQueue, callbacks ];
     },
@@ -1001,6 +1042,9 @@ const Connection = Class({
         var state = args.state;
         var notFound = args.notFound;
         var accountId = args.accountId;
+        // Although this must not be null according to the spec, we use a null
+        // value when handling errors (see error/_get) so that we can skip the
+        // sourceDidFetchRecords call.
         if ( list ) {
             store.sourceDidFetchRecords( accountId, Type, list, state, isAll );
         }
@@ -1030,20 +1074,20 @@ const Connection = Class({
         if ( ( object = args.created ) && Object.keys( object ).length ) {
             store.sourceDidCommitCreate( object );
         }
-        if ( ( object = args.notCreated ) ) {
+        if (( object = args.notCreated )) {
             list = Object.keys( object );
             if ( list.length ) {
                 store.sourceDidNotCreate( list, true, Object.values( object ) );
             }
         }
-        if ( ( object = args.updated ) ) {
+        if (( object = args.updated )) {
             list = Object.keys( object );
             if ( list.length ) {
                 store.sourceDidCommitUpdate( list.map( toStoreKey ) )
                      .sourceDidFetchPartialRecords( accountId, Type, object );
             }
         }
-        if ( ( object = args.notUpdated ) ) {
+        if (( object = args.notUpdated )) {
             list = Object.keys( object );
             if ( list.length ) {
                 store.sourceDidNotUpdate(
@@ -1053,7 +1097,7 @@ const Connection = Class({
         if ( ( list = args.destroyed ) && list.length ) {
             store.sourceDidCommitDestroy( list.map( toStoreKey ) );
         }
-        if ( ( object = args.notDestroyed ) ) {
+        if (( object = args.notDestroyed )) {
             list = Object.keys( object );
             if ( list.length ) {
                 store.sourceDidNotDestroy(
@@ -1066,30 +1110,31 @@ const Connection = Class({
         }
     },
 
-    didCopy: function ( Type, args ) {
+    didCopy: function ( Type, args, requestArgs ) {
+        if ( requestArgs.onSuccessDestroyOriginal ) {
+            const notCopied = args.notCreated;
+            if ( notCopied ) {
+                const fromAccountId = args.fromAccountId;
+                const store = this.get( 'store' );
+                const storeKeys =
+                    Object.keys( notCopied ).map( function ( storeKey ) {
+                        const id = requestArgs.create[ storeKey ].id;
+                        return store.getStoreKey( fromAccountId, Type, id );
+                    });
+                store.sourceDidNotDestroy( storeKeys, true );
+            }
+            this.didCommit( Type, args );
+        }
+    },
+
+    fetchMoreChanges: function ( accountId, Type ) {
+        // Needs to be queued after, because the callback that clears
+        // the Type's LOADING flag in the store runs in the middle
+        // queue, and until that's cleared this request will be ignored
         var store = this.get( 'store' );
-        var list, object;
-        if (( object = args.created )) {
-            list = Object.keys( object );
-            if ( list.length ) {
-                store.sourceDidCommitUpdate( list )
-                     .sourceDidFetchPartialRecords(
-                        args.toAccountId,
-                        Type,
-                        Object.zip(
-                            Object.keys( object )
-                                  .map( store.getIdFromStoreKey.bind( store ) ),
-                            Object.values( object )
-                        )
-                     );
-            }
-        }
-        if (( object = args.notCreated )) {
-            list = Object.keys( object );
-            if ( list.length ) {
-                store.sourceDidNotUpdate( list, true, Object.values( object ) );
-            }
-        }
+        RunLoop.queueFn( 'after', function () {
+            store.fetchAll( accountId, Type, true );
+        });
     },
 
     /**
@@ -1100,46 +1145,138 @@ const Connection = Class({
         response to return data to the client.
     */
     response: {
-        error: function ( args, reqName, reqArgs ) {
-            var type = args.type,
-                method = 'error_' + reqName + '_' + type,
-                response = this.response;
-            if ( !response[ method ] ) {
-                method = 'error_' + type;
-            }
+        error: function ( args, requestName, requestArgs ) {
+            var handled = false;
+            var response = this.response;
+            var type = args.type;
+            var method = 'error_' + requestName + '_' + type;
             if ( response[ method ] ) {
-                response[ method ].call( this, args, reqName, reqArgs );
+                response[ method ].call( this, args, requestName, requestArgs );
+                handled = true;
+            } else {
+                method = 'error_' + requestName;
+                if ( response[ method ] ) {
+                    response[ method ].call(
+                        this, args, requestName, requestArgs );
+                    handled = true;
+                } else {
+                    method = 'error_' +
+                        requestName.slice( requestName.indexOf( '/' ) );
+                    if ( response[ method ] ) {
+                        response[ method ].call(
+                            this, args, requestName, requestArgs );
+                        handled = true;
+                    }
+                }
+                method = 'error_' + type;
+                if ( response[ method ] ) {
+                    response[ method ].call(
+                        this, args, requestName, requestArgs );
+                    handled = true;
+                }
+            }
+            if ( !handled ) {
+                console.log( 'Unhandled error: ' + type + '\n\n' +
+                    JSON.stringify( args, null, 2 ) );
             }
         },
-        error_unknownMethod: function ( _, requestName ) {
+
+        // ---
+
+        'error_/get': function ( args, requestName, requestArgs ) {
+            var ids = requestArgs.ids;
+            var accountId = requestArgs.accountId;
+            if ( !ids ) {
+                return;
+            }
+            var fakeArgs = {
+                accountId: accountId,
+                list: null,
+                notFound: ids,
+                state: null,
+            };
+            this.response[ requestName ].call( this,
+                fakeArgs, requestName, requestArgs );
+        },
+
+        'error_/set': function ( args, requestName, requestArgs ) {
+            var create = requestArgs.create;
+            var update = requestArgs.update;
+            var destroy = requestArgs.destroy;
+            var fakeArgs = {
+                accountId: requestArgs.accountId,
+                notCreated: create ? Object.keys( create ).reduce(
+                    function ( notCreated, storeKey ) {
+                        notCreated[ storeKey ] = args;
+                        return notCreated;
+                    }, {} ) : null,
+                notUpdated: update ? Object.keys( update ).reduce(
+                    function ( notUpdated, id ) {
+                        notUpdated[ id ] = args;
+                        return notUpdated;
+                    }, {} ) : null,
+                notDestroyed: destroy ? destroy.reduce(
+                    function ( notDestroyed, id ) {
+                        notDestroyed[ id ] = args;
+                        return notDestroyed;
+                    }, {} ) : null,
+            };
+            this.response[ requestName ].call( this,
+                fakeArgs, requestName, requestArgs );
+        },
+
+
+        'error_/copy': function ( args, requestName, requestArgs ) {
+            var create = requestArgs.create;
+            var fakeArgs = {
+                accountId: requestArgs.accountId,
+                notCreated: create ? Object.keys( create ).reduce(
+                    function ( notCreated, storeKey ) {
+                        notCreated[ storeKey ] = args;
+                        return notCreated;
+                    }, {} ) : null,
+            };
+            this.response[ requestName ].call( this,
+                fakeArgs, requestName, requestArgs );
+        },
+
+        // ---
+
+        error_accountNotFound: function (/* args, requestName, requestArgs */) {
+            auth.fetchSession();
+        },
+        error_accountReadOnly: function (/* args, requestName, requestArgs */) {
+            auth.fetchSession();
+        },
+        error_accountNotSupportedByMethod: function (/* args, requestName, requestArgs */) {
+            auth.fetchSession();
+        },
+
+        error_serverFail: function ( args/*, requestName, requestArgs*/ ) {
+            console.log( 'Server error: ' + JSON.stringify( args, null, 2 ) );
+        },
+        error_unknownMethod: function ( args, requestName/*, requestArgs*/ ) {
             // eslint-disable-next-line no-console
             console.log( 'Unknown API call made: ' + requestName );
         },
-        error_invalidArguments: function ( _, requestName, requestArgs ) {
+        error_invalidArguments: function ( args, requestName, requestArgs ) {
             // eslint-disable-next-line no-console
             console.log( 'API call to ' + requestName +
-                'made with invalid arguments: ', requestArgs );
+                ' made with invalid arguments: ', requestArgs );
         },
-        error_anchorNotFound: function (/* args */) {
-            // Don't need to do anything; it's only used for doing indexOf,
-            // and it will just check that it doesn't have it.
+        error_requestTooLarge: function ( args, requestName, requestArgs ) {
+            // eslint-disable-next-line no-console
+            console.log( 'API call to ' + requestName +
+                ' was too large: ', requestArgs );
         },
-        error_accountNotFound: function () {
-            // TODO: refetch accounts list.
-        },
-        error_accountReadOnly: function () {
-            // TODO: refetch accounts list
-        },
-        error_accountNotSupportedByMethod: function () {
-            // TODO: refetch accounts list
-        },
-    }
+    },
 });
 
 Connection.makeSetRequest = makeSetRequest;
 Connection.makePatches = makePatches;
+Connection.makeUpdate = makeUpdate;
 Connection.applyPatch = applyPatch;
 
 JMAP.Connection = Connection;
 
-}( JMAP ) );
+}( JMAP, window.performance || null ) );

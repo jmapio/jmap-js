@@ -26,67 +26,63 @@ const Contact = Class({
     Extends: Record,
 
     isFlagged: attr( Boolean, {
-        defaultValue: false
+        defaultValue: false,
     }),
 
     avatar: attr( Object, {
-        defaultValue: null
-    }),
-
-    importance: attr( Number, {
-        defaultValue: 0
+        defaultValue: null,
     }),
 
     prefix: attr( String, {
-        defaultValue: ''
+        defaultValue: '',
     }),
     firstName: attr( String, {
-        defaultValue: ''
+        defaultValue: '',
     }),
     lastName: attr( String, {
-        defaultValue: ''
+        defaultValue: '',
     }),
     suffix: attr( String, {
-        defaultValue: ''
+        defaultValue: '',
     }),
 
     nickname: attr( String, {
-        defaultValue: ''
+        defaultValue: '',
     }),
 
     birthday: attr( AmbiguousDate, {
-        defaultValue: '0000-00-00'
+        defaultValue: '0000-00-00',
     }),
     anniversary: attr( AmbiguousDate, {
-        defaultValue: '0000-00-00'
+        defaultValue: '0000-00-00',
     }),
 
     company: attr( String, {
-        defaultValue: ''
+        defaultValue: '',
     }),
     department: attr( String, {
-        defaultValue: ''
+        defaultValue: '',
     }),
     jobTitle: attr( String, {
-        defaultValue: ''
+        defaultValue: '',
     }),
 
     emails: attr( Array, {
-        defaultValue: []
+        defaultValue: [],
     }),
     phones: attr( Array, {
-        defaultValue: []
+        defaultValue: [],
     }),
     online: attr( Array, {
-        defaultValue: []
+        defaultValue: [],
     }),
 
     addresses: attr( Array, {
-        defaultValue: []
+        defaultValue: [],
     }),
 
     notes: attr( String, {
-        defaultValue: ''
+        defaultValue: '',
     }),
 
     isEditable: function () {
@@ -177,7 +173,7 @@ const Contact = Class({
         var name = this.get( 'emailName' );
         var email = this.get( 'defaultEmail' );
         return email ? name ? name + ' <' + email + '>' : email : '';
-    }.property( 'emailName', 'defaultEmail' )
+    }.property( 'emailName', 'defaultEmail' ),
 });
 Contact.__guid__ = 'Contact';
 Contact.dataGroup = 'urn:ietf:params:jmap:contacts';
@@ -203,12 +199,12 @@ contacts.handle( Contact, {
         const hasDataForChanged = true;
         this.didFetchUpdates( Contact, args, hasDataForChanged );
         if ( args.hasMoreChanges ) {
-            this.get( 'store' ).fetchAll( args.accountId, Contact, true );
+            this.fetchMoreChanges( args.accountId, Contact );
         }
     },
 
-    'Contact/copy': function ( args ) {
-        this.didCopy( Contact, args );
+    'Contact/copy': function ( args, _, reqArgs ) {
+        this.didCopy( Contact, args, reqArgs );
     },
 
     'error_Contact/changes_cannotCalculateChanges': function ( _, __, reqArgs ) {

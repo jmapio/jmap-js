@@ -32,20 +32,28 @@ const Calendar = Class({
                 );
             }
             return null;
-        }
+        },
     }),
 
     color: attr( String, {
-        defaultValue: '#3a429c'
+        defaultValue: '#3a429c',
     }),
 
     sortOrder: attr( Number, {
-        defaultValue: 0
+        defaultValue: 0,
+    }),
+
+    isSubscribed: attr( Boolean, {
+        defaultValue: true,
     }),
 
     isVisible: attr( Boolean, {
-        defaultValue: true
+        defaultValue: true,
     }),
+
+    isEventsShown: function () {
+        return this.get( 'isSubscribed' ) && this.get( 'isVisible' );
+    }.property( 'isSubscribed', 'isVisible' ),
 
     cascadeChange: function ( _, key, oldValue, newValue ) {
         var store = this.get( 'store' );
@@ -88,26 +96,26 @@ const Calendar = Class({
     // ---
 
     mayReadFreeBusy: attr( Boolean, {
-        defaultValue: true
+        defaultValue: true,
     }),
     mayReadItems: attr( Boolean, {
-        defaultValue: true
+        defaultValue: true,
     }),
     mayAddItems: attr( Boolean, {
-        defaultValue: true
+        defaultValue: true,
     }),
     mayModifyItems: attr( Boolean, {
-        defaultValue: true
+        defaultValue: true,
     }),
     mayRemoveItems: attr( Boolean, {
-        defaultValue: true
+        defaultValue: true,
     }),
 
     mayRename: attr( Boolean, {
-        defaultValue: true
+        defaultValue: true,
     }),
     mayDelete: attr( Boolean, {
-        defaultValue: true
+        defaultValue: true,
     }),
 
     mayWrite: function ( mayWrite ) {
@@ -145,7 +153,7 @@ JMAP.calendar.handle( Calendar, {
         const hasDataForChanged = true;
         this.didFetchUpdates( Calendar, args, hasDataForChanged );
         if ( args.hasMoreChanges ) {
-            this.get( 'store' ).fetchAll( args.accountId, Calendar, true );
+            this.fetchMoreChanges( args.accountId, Calendar );
         }
     },
 

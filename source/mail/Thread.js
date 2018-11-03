@@ -82,11 +82,10 @@ const Thread = Class({
 
     Extends: Record,
 
-    isEditable: false,
-
     messages: Record.toMany({
         recordType: Message,
         key: 'emailIds',
+        noSync: true,
     }),
 
     messagesInNotTrash: function () {
@@ -215,7 +214,7 @@ JMAP.mail.handle( Thread, {
     //  ---
 
     'Thread/get': function ( args ) {
-        this.didFetch( Thread, args );
+        this.didFetch( Thread, args, false );
     },
 
     'Thread/changes': function ( args ) {
@@ -231,14 +230,13 @@ JMAP.mail.handle( Thread, {
                 } else {
                     this.threadChangesMaxChanges = 150;
                 }
-                this.get( 'store' ).fetchAll( args.accountId, Thread, true );
+                this.fetchMoreChanges( args.accountId, Thread );
                 return;
             } else {
                 // We've fetched 300 updates and there's still more. Let's give
                 // up and reset.
-                this.response
-                    .error_getThreadUpdates_cannotCalculateChanges
-                    .call( this, args );
+                this.response[ 'error_Thread/changes_cannotCalculateChanges' ]
+                    .apply( this, arguments );
             }
         }
         this.threadChangesMaxChanges = 50;

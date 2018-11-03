@@ -147,7 +147,7 @@ const CalendarEventOccurrence = Class({
         this.storeKey = original.get( 'storeKey' ) + id;
 
         CalendarEventOccurrence.parent.constructor.call( this );
-        original.on( 'highlightView', this, 'echoEvent' );
+        original.on( 'viewAction', this, 'echoEvent' );
     },
 
     getOriginalForKey: function ( key ) {
@@ -167,7 +167,10 @@ const CalendarEventOccurrence = Class({
                        ._getOccurrenceForRecurrenceId( this.id );
     },
 
-    clone: CalendarEvent.prototype.clone,
+    clone: function ( store ) {
+        var clone = CalendarEvent.prototype.clone.call( this, store );
+        return clone.set( 'recurrenceRule', null );
+    },
 
     destroy: function () {
         var original = this.get( 'original' );
@@ -182,7 +185,7 @@ const CalendarEventOccurrence = Class({
     },
 
     unload: function () {
-        this.get( 'original' ).off( 'highlightView', this, 'echoEvent' );
+        this.get( 'original' ).off( 'viewAction', this, 'echoEvent' );
         CalendarEventOccurrence.parent.destroy.call( this );
     },
 
@@ -269,6 +272,8 @@ const CalendarEventOccurrence = Class({
     freeBusyStatus: proxyOverrideAttibute( String, 'freeBusyStatus' ),
     replyTo: proxyAttribute,
     participants: proxyOverrideAttibute( Object, 'participants' ),
+    participantNameAndEmails: CalendarEvent.prototype.participantNameAndEmails,
+    ownerNameAndEmails: CalendarEvent.prototype.ownerNameAndEmails,
     participantId: proxyAttribute,
 
     rsvp: function ( rsvp ) {

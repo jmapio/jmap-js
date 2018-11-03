@@ -10,17 +10,23 @@
 
 ( function ( JMAP ) {
 
+const Obj = O.Object;
+const HttpRequest = O.HttpRequest;
+const RunLoop = O.RunLoop;
+
+// ---
+
 const MAIL_DATA = 'urn:ietf:params:jmap:mail';
 const CONTACTS_DATA = 'urn:ietf:params:jmap:contacts';
 const CALENDARS_DATA = 'urn:ietf:params:jmap:calendars';
 
-const auth = new O.Object({
+const auth = new Obj({
 
     isAuthenticated: false,
 
     username: '',
 
-    accounts: {},
+    accounts: null,
     primaryAccounts: {},
     capabilities: {
         'urn:ietf:params:jmap:core': {
@@ -44,8 +50,8 @@ const auth = new O.Object({
             submissionExtensions: [],
         },
     },
+    state: '',
 
-    authenticationUrl: '',
     apiUrl: '',
     downloadUrl: '',
     uploadUrl: '',
@@ -103,11 +109,37 @@ const auth = new O.Object({
     isDisconnected: false,
     timeToReconnect: 0,
 
+    _isFetchingSession: false,
     _awaitingAuthentication: [],
     _failedConnections: [],
 
     _timeToWait: 1,
     _timer: null,
+
+    fetchSession: function ( authenticationUrl, accessToken ) {
+        if ( this._isFetchingSession ) {
+            return this;
+        }
+        this._isFetchingSession = true;
+
+        new HttpRequest({
+            method: 'GET',
+            url: authenticationUrl,
+            headers: {
+                'Accept': 'application/json',
+                'Authorization': accessToken,
+            },
+            timeout: 45000,
+            responseType: 'json',
+
+            onSuccess: function ( event ) {
+                auth.set( 'accessToken', accessToken );
+                auth.didAuthenticate( event.data );
+            }.on( 'io:success' ),
+        }).send();
+
+        return this;
+    },
 
     connectionWillSend: function ( connection ) {
         var isAuthenticated = this.get( 'isAuthenticated' );
@@ -149,8 +181,7 @@ const auth = new O.Object({
                 .set( 'timeToReconnect', timeToWait + 1 );
 
             this._timeToWait = timeToWait;
-            this._timer =
-                O.RunLoop.invokePeriodically( this._tick, 1000, this );
+            this._timer = RunLoop.invokePeriodically( this._tick, 1000, this );
             this._tick();
         }
     },
@@ -165,7 +196,7 @@ const auth = new O.Object({
 
     retryConnections: function () {
         var failedConnections = this._failedConnections;
-        O.RunLoop.cancel( this._timer );
+        RunLoop.cancel( this._timer );
         this.set( 'timeToReconnect', 0 );
         this._timer = null;
         this._failedConnections = [];

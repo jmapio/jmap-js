@@ -30,7 +30,7 @@ const contactsIndex = new Obj({
         var storeKeys = store.findAll( Contact );
         var i, l, contact, emails, ll;
         for ( i = 0, l = storeKeys.length; i < l; i += 1 ) {
-            contact = store.materialiseRecord( storeKeys[i], Contact );
+            contact = store.materialiseRecord( storeKeys[i] );
             emails = contact.get( 'emails' );
             ll = emails.length;
             while ( ll-- ) {

@@ -31,6 +31,19 @@ const numerically = function ( a, b ) {
     return a - b;
 };
 
+const toNameAndEmail = function ( participant ) {
+    var name = participant.name.replace( /"/g, '' );
+    var email = participant.email;
+    return name ?
+        ( /[,;<>@()]/.test( name ) ? '"' + name + '"' : name ) +
+        ' <' + email + '>' :
+        email;
+};
+
+const isOwner = function ( participant ) {
+    return !!participant.roles.owner;
+};
+
 const CalendarEvent = Class({
 
     Extends: Record,
@@ -47,8 +60,7 @@ const CalendarEvent = Class({
         var participants = this.get( 'participants' );
         var participantId = this.get( 'participantId' );
         return !!( participants && (
-            !participantId ||
-            !participants[ participantId ].roles.contains( 'owner' )
+            !participantId || !isOwner( participants[ participantId ] )
         ));
     }.property( 'participants', 'participantId' ),
 
@@ -59,8 +71,9 @@ const CalendarEvent = Class({
 
     clone: function ( store ) {
         var clone = CalendarEvent.parent.clone.call( this, store );
-        clone.set( 'uid', uuidCreate() );
-        return clone;
+        return clone
+            .set( 'uid', uuidCreate() )
+            .set( 'relatedTo', null );
     },
 
     // --- JMAP
@@ -82,7 +95,9 @@ const CalendarEvent = Class({
 
     uid: attr( String ),
 
-    relatedTo: attr( Object ),
+    relatedTo: attr( Object, {
+        defaultValue: null,
+    }),
 
     prodId: attr( String ),
 
@@ -101,9 +116,9 @@ const CalendarEvent = Class({
         noSync: true,
     }),
 
-    // method: attr( String, {
-    //     noSync: true,
-    // }),
+    method: attr( String, {
+        noSync: true,
+    }),
 
     // --- What
 
@@ -186,8 +201,8 @@ const CalendarEvent = Class({
     // locale: attr( String ),
     // localizations: attr( Object ),
 
-    // keywords: attr( Array ),
-    // categories: attr( Array ),
+    // keywords: attr( Object ),
+    // categories: attr( Object ),
     // color: attr( String ),
 
     // --- When
@@ -557,6 +572,25 @@ const CalendarEvent = Class({
         defaultValue: null,
     }),
 
+    participantNameAndEmails: function () {
+        var participants = this.get( 'participants' );
+        return participants ?
+            Object.values( participants )
+                .map( toNameAndEmail )
+                .join( ', ' ) :
+            '';
+    }.property( 'participants' ),
+
+    ownerNameAndEmails: function () {
+        var participants = this.get( 'participants' );
+        return participants ?
+            Object.values( participants )
+                .filter( isOwner )
+                .map( toNameAndEmail )
+                .join( ', ' ) :
+            '';
+    }.property( 'participants' ),
+
     // --- JMAP Scheduling
 
     // The id for the calendar owner's participant
@@ -577,14 +611,14 @@ const CalendarEvent = Class({
                     .set( 'alerts', null );
             }
             // Do alert me if I change my mind!
-            else if ( you.rsvpResponse === 'declined' &&
+            else if ( you.participationStatus === 'declined' &&
                     this.get( 'alerts' ) === null ) {
                 this.set( 'useDefaultAlerts', true );
             }
-            participants[ participantId ].rsvpResponse = rsvp;
+            participants[ participantId ].participationStatus = rsvp;
             this.set( 'participants', participants );
         } else {
-            rsvp = you && you.rsvpResponse || '';
+            rsvp = you && you.participationStatus || '';
         }
         return rsvp;
     }.property( 'participants', 'participantId' ),
@@ -675,7 +709,7 @@ calendar.handle( CalendarEvent, {
 
     'CalendarEvent/get': function ( args ) {
         var events = args.list;
-        var l = events.length;
+        var l = events ? events.length : 0;
         var event, timeZoneId;
         var accountId = args.accountId;
         while ( l-- ) {
@@ -695,8 +729,12 @@ calendar.handle( CalendarEvent, {
         const hasDataForChanged = true;
         this.didFetchUpdates( CalendarEvent, args, hasDataForChanged );
         if ( args.hasMoreChanges ) {
-            this.get( 'store' ).fetchAll( args.accountId, CalendarEvent, true );
+            this.fetchMoreChanges( args.accountId, CalendarEvent );
         }
+    },
+
+    'CalendarEvent/copy': function ( args, _, reqArgs ) {
+        this.didCopy( CalendarEvent, args, reqArgs );
     },
 
     'error_CalendarEvent/changes_cannotCalculateChanges': function ( _, __, reqArgs ) {

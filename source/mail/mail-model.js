@@ -140,10 +140,10 @@ const isFilteredJustOnMailbox = function ( filter ) {
     }
     return isJustMailboxes;
 };
-const isTrue = function () {
+const returnTrue = function () {
     return true;
 };
-const isFalse = function () {
+const returnFalse = function () {
     return false;
 };
 
@@ -513,13 +513,10 @@ Object.assign( connection, {
                 sort: null,
                 position: 0,
                 limit: 1,
-            }, function ( response ) {
-                var call = response[0];
-                var method = call[0];
-                var args = call[1];
+            }, function ( responseArgs, responseName ) {
                 var id;
-                if ( method === 'Email/query' ) {
-                    id = args.ids[0];
+                if ( responseName === 'Email/query' ) {
+                    id = responseArgs.ids[0];
                     if ( id ) {
                         resolve( store.getRecord( accountId, Message, id ) );
                     } else {
@@ -528,9 +525,10 @@ Object.assign( connection, {
                         });
                     }
                 } else {
-                    reject( args );
+                    reject( responseArgs );
                 }
             }).callMethod( 'Email/get', {
+                accountId: accountId,
                 '#ids': {
                     resultOf: connection.getPreviousMethodId(),
                     name: 'Email/query',
@@ -657,7 +655,7 @@ Object.assign( connection, {
             }
 
             // Get the thread and cache the current unread state
-            var thread = message.get( 'thread' );
+            var thread = message.getThreadIfReady();
             var isInTrash = message.get( 'isInTrash' );
             var isInNotTrash = message.get( 'isInNotTrash' );
             var threadUnreadInTrash =
@@ -794,7 +792,7 @@ Object.assign( connection, {
 
         // Check we're not moving from/to the same place
         if ( addMailbox === removeMailbox && !addMailboxOnlyIfNone ) {
-            return;
+            return this;
         }
 
         // Check ACLs
@@ -872,13 +870,26 @@ Object.assign( connection, {
                 }
             }
 
+            // Get the thread and cache the current unread state
+            isUnread = message.get( 'isUnread' ) && !message.get( 'isDraft' );
+            thread = message.getThreadIfReady();
+            if ( thread ) {
+                wasThreadUnreadInNotTrash = thread.get( 'isUnreadInNotTrash' );
+                wasThreadUnreadInTrash = thread.get( 'isUnreadInTrash' );
+            }
+
             // Handle moving cross-account
             if ( willAdd && messageAccountId !== accountId ) {
                 if ( removeAll ||
                         ( willRemove && mailboxes.get( 'length' ) === 1 ) ) {
-                    // Removing all existing mailboxes? No problem, just set
-                    // message to new account id.
-                    message.set( 'accountId', accountId );
+                    // Removing all existing mailboxes.
+                    // Preemptively remove it from the thread
+                    if ( thread ) {
+                        thread.get( 'messages' ).remove( message );
+                        thread.fetch();
+                    }
+                    // And move to new account id.
+                    message = message.set( 'accountId', accountId );
                 } else {
                     // Otherwise, we need to copy.
                     ( toCopy[ messageAccountId ] ||
@@ -889,14 +900,6 @@ Object.assign( connection, {
                         return;
                     }
                 }
-            }
-
-            // Get the thread and cache the current unread state
-            isUnread = message.get( 'isUnread' ) && !message.get( 'isDraft' );
-            thread = message.get( 'thread' );
-            if ( thread ) {
-                wasThreadUnreadInNotTrash = thread.get( 'isUnreadInNotTrash' );
-                wasThreadUnreadInTrash = thread.get( 'isUnreadInTrash' );
             }
 
             // Update the message
@@ -924,7 +927,9 @@ Object.assign( connection, {
             // Add inverse for undo
             if ( allowUndo ) {
                 addMoveInverse( inverse, undoManager,
-                    willAdd, willRemove, messageSK );
+                    // Don't use messageSK, because we need the new store key
+                    // if we moved it to a new account
+                    willAdd, willRemove, message.get( 'storeKey' ) );
             }
 
             // Calculate any changes to the mailbox message counts
@@ -955,7 +960,13 @@ Object.assign( connection, {
             incrementMailboxCount = function ( mailbox ) {
                 var mailboxSK = mailbox.get( 'storeKey' );
                 var delta = getMailboxDelta( mailboxDeltas, mailboxSK );
-                delta.added.push( message );
+                // Don't pre-emptively add to any queries when moving
+                // cross-account. The thread reference will change, but this is
+                // an immutable property so you don't want a view to render
+                // thinking the message is READY and then have it change.
+                if ( messageAccountId === accountId ) {
+                    delta.added.push( message );
+                }
                 delta.totalEmails += 1;
                 if ( isUnread ) {
                     delta.unreadEmails += 1;
@@ -1015,7 +1026,7 @@ Object.assign( connection, {
             mailboxIds[ addMailbox.toIdOrStoreKey() ] = true;
             this.callMethod( 'Email/copy', {
                 fromAccountId: fromAccountId,
-                toAccountId: accountId,
+                accountId: accountId,
                 create: toCopy[ fromAccountId ].reduce(
                     function ( map, message, index ) {
                         map[ 'copy' + index ] = {
@@ -1040,7 +1051,7 @@ Object.assign( connection, {
         updateMailboxCounts( mailboxDeltas );
 
         // Update message list queries, or mark in need of refresh
-        updateQueries( isFilteredOnMailboxes, isFalse, mailboxDeltas );
+        updateQueries( isFilteredOnMailboxes, returnFalse, mailboxDeltas );
 
         return this;
     },
@@ -1064,7 +1075,7 @@ Object.assign( connection, {
 
             // Get the thread and cache the current unread state
             isUnread = message.get( 'isUnread' ) && !message.get( 'isDraft' );
-            thread = message.get( 'thread' );
+            thread = message.getThreadIfReady();
             if ( thread ) {
                 mailboxCounts = thread.get( 'mailboxCounts' );
                 wasThreadUnreadInNotTrash = thread.get( 'isUnreadInNotTrash' );
@@ -1130,7 +1141,7 @@ Object.assign( connection, {
         updateMailboxCounts( mailboxDeltas );
 
         // Update message list queries, or mark in need of refresh
-        updateQueries( isTrue, isFalse, mailboxDeltas );
+        updateQueries( returnTrue, returnFalse, mailboxDeltas );
 
         return this;
     },
@@ -1174,7 +1185,7 @@ Object.assign( connection, {
     // ---
 
     create: function ( message ) {
-        var thread = message.get( 'thread' );
+        var thread = message.getThreadIfReady();
         var mailboxes = message.get( 'mailboxes' );
         var wasThreadUnreadInNotTrash = false;
         var wasThreadUnreadInTrash = false;
@@ -1189,7 +1200,7 @@ Object.assign( connection, {
         var mailboxSK, mailbox, isTrash;
 
         // Cache the current thread state
-        if ( thread && thread.is( READY ) ) {
+        if ( thread ) {
             mailboxCounts = thread.get( 'mailboxCounts' );
             wasThreadUnreadInNotTrash = thread.get( 'isUnreadInNotTrash' );
             wasThreadUnreadInTrash = thread.get( 'isUnreadInTrash' );
@@ -1211,31 +1222,16 @@ Object.assign( connection, {
 
         if ( mailboxCounts ) {
             // Preemptively update the thread
-            var inReplyTo = isDraft &&
-                    message.getFromPath( 'inReplyTo.0' ) || '';
             var messages = thread.get( 'messages' );
-            var seenInReplyTo = false;
             var l = messages.get( 'length' );
-            var i, messageInThread;
-
-            if ( inReplyTo ) {
-                for ( i = 0; i < l; i += 1 ) {
-                    messageInThread = messages.getObjectAt( i );
-                    if ( seenInReplyTo ) {
-                        if ( !messageInThread.get( 'isDraft' ) ||
-                                inReplyTo !== messageInThread
-                                    .getFromPath( 'inReplyTo.0' ) ) {
-                            break;
-                        }
-                    } else if ( inReplyTo === messageInThread
-                            .getFromPath( 'messageId.0' ) ) {
-                        seenInReplyTo = true;
-                    }
+            var receivedAt = message.get( 'receivedAt' );
+            while ( l-- ) {
+                if ( receivedAt >=
+                        messages.getObjectAt( l ).get( 'receivedAt' ) ) {
+                    break;
                 }
-            } else {
-                i = l;
             }
-            messages.replaceObjectsAt( i, 0, [ message ] );
+            messages.replaceObjectsAt( l + 1, 0, [ message ] );
             thread.fetch();
 
             // Calculate any changes to the mailbox message counts
@@ -1285,7 +1281,7 @@ Object.assign( connection, {
         updateMailboxCounts( mailboxDeltas );
 
         // Update message list queries, or mark in need of refresh
-        updateQueries( isTrue, isFalse, mailboxDeltas );
+        updateQueries( returnTrue, returnFalse, mailboxDeltas );
 
         return this;
     },

@@ -9,9 +9,14 @@
 
 ( function ( JMAP ) {
 
-const InfiniteDateSource = O.Class({
+const Class = O.Class;
+const ObservableArray = O.ObservableArray;
 
-    Extends: O.ObservableArray,
+// ---
+
+const InfiniteDateSource = Class({
+
+    Extends: ObservableArray,
 
     init: function ( mixin ) {
         InfiniteDateSource.parent.constructor.call( this, null, mixin );
@@ -31,15 +36,22 @@ const InfiniteDateSource = O.Class({
     windowLength: 10,
 
     windowLengthDidChange: function () {
-        var windowLength = this.get( 'windowLength' ),
-            length = this.get( 'length' ),
-            anchor, array, i;
+        var windowLength = this.get( 'windowLength' );
+        var length = this.get( 'length' );
+        var anchor, array, i;
         if ( length < windowLength ) {
             anchor = this.last();
             array = this._array;
             for ( i = length; i < windowLength; i += 1 ) {
-                array[i] = anchor = anchor ?
-                    this.getNext( anchor ) : this.get( 'start' );
+                anchor = anchor ?
+                    this.getNext( anchor ) :
+                    new Date( this.get( 'start' ) );
+                if ( anchor ) {
+                    array[i] = anchor;
+                } else {
+                    windowLength = i;
+                    break;
+                }
             }
             this.rangeDidChange( length, windowLength );
         }
@@ -47,27 +59,45 @@ const InfiniteDateSource = O.Class({
     }.observes( 'windowLength' ),
 
     shiftWindow: function ( offset ) {
-        var current = this._array.slice(),
-            length = this.get( 'windowLength' ),
-            anchor;
+        var current = this.get( '[]' );
+        var length = this.get( 'windowLength' );
+        var didShift = false;
+        var anchor;
         if ( offset < 0 ) {
             anchor = current[0];
             while ( offset++ ) {
                 anchor = this.getPrev( anchor );
+                if ( !anchor ) {
+                    break;
+                }
+                didShift = true;
                 current.unshift( anchor );
             }
-            current = current.slice( 0, length );
+            if ( didShift ) {
+                current = current.slice( 0, length );
+            }
         } else {
             anchor = current.last();
             while ( offset-- ) {
                 anchor = this.getNext( anchor );
+                if ( !anchor ) {
+                    break;
+                }
+                didShift = true;
                 current.push( anchor );
             }
-            current = current.slice( -length );
+            if ( didShift ) {
+                current = current.slice( -length );
+            }
         }
-        this.set( '[]', current );
-    }
+        if ( didShift ) {
+            this.set( '[]', current );
+        }
+        return didShift;
+    },
 });
+
+// --- Export
 
 JMAP.InfiniteDateSource = InfiniteDateSource;
 

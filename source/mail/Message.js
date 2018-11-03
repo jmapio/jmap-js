@@ -184,6 +184,15 @@ const Message = Class({
 
     // ---
 
+    getThreadIfReady: function () {
+        var store = this.get( 'store' );
+        var threadSK = this.getData().threadId;
+        if ( store.getStatus( threadSK ) & READY ) {
+            return this.get( 'thread' );
+        }
+        return null;
+    },
+
     hasPermission: function ( permission ) {
         return this.get( 'mailboxes' ).every( function ( mailbox ) {
             return mailbox.get( 'myRights' )[ permission ];
@@ -206,10 +215,9 @@ const Message = Class({
     }.property( 'mailboxes' ),
 
     notifyThread: function () {
-        var store = this.get( 'store' );
-        var threadSK = this.getData().threadId;
-        if ( store.getStatus( threadSK ) & READY ) {
-            this.get( 'thread' ).propertyDidChange( 'messages' );
+        var thread = this.getThreadIfReady();
+        if ( thread ) {
+            thread.propertyDidChange( 'messages' );
         }
     }.queue( 'before' ).observes( 'mailboxes', 'keywords', 'hasAttachment' ),
 
@@ -343,8 +351,15 @@ const Message = Class({
     }.property( 'bodyStructure' ),
 
     hasHTMLBody: function () {
-        var bodyParts = this.get( 'bodyParts' );
-        return !isEqual( bodyParts.text, bodyParts.html );
+        return this.get( 'bodyParts' ).html.some( function ( part ) {
+            return part.type === 'text/html';
+        });
+    }.property( 'bodyParts' ),
+
+    hasTextBody: function () {
+        return this.get( 'bodyParts' ).text.some( function ( part ) {
+            return part.type === 'text/plain';
+        });
     }.property( 'bodyParts' ),
 
     areBodyValuesFetched: function ( type ) {
@@ -369,6 +384,22 @@ const Message = Class({
     fetchBodyValues: function () {
         mail.fetchRecord(
             this.get( 'accountId' ), MessageBodyValues, this.get( 'id' ) );
+    },
+
+    // ---
+
+    hasObservers: function () {
+        if ( Message.parent.hasObservers.call( this ) ) {
+            return true;
+        }
+        var data = this.getData();
+        var threadSK = data && data.threadId;
+        if ( threadSK ) {
+            return this.get( 'store' )
+                .materialiseRecord( threadSK )
+                .hasObservers();
+        }
+        return false;
     },
 });
 Message.__guid__ = 'Email';
@@ -401,6 +432,17 @@ Message.detailsProperties = [
     'bodyStructure',
     'bodyValues',
 ];
+Message.bodyProperties = [
+    'partId',
+    'blobId',
+    'size',
+    'name',
+    'type',
+    'charset',
+    'disposition',
+    'cid',
+    'location',
+];
 Message.Details = MessageDetails;
 Message.Thread = MessageThread;
 Message.BodyValues = MessageBodyValues;
@@ -414,6 +456,7 @@ mail.handle( MessageDetails, {
             ids: ids,
             properties: Message.detailsProperties,
             fetchHTMLBodyValues: true,
+            bodyProperties: Message.bodyProperties,
         });
     },
 });
@@ -425,6 +468,7 @@ mail.handle( MessageBodyValues, {
             ids: ids,
             properties: [ 'bodyValues' ],
             fetchAllBodyValues: true,
+            bodyProperties: Message.bodyProperties,
         });
     },
 });
@@ -504,17 +548,39 @@ mail.handle( Message, {
         var store = this.get( 'store' );
         var list = args.list;
         var accountId = args.accountId;
-        var message = list[0];
-        var updates;
+        var l = list ? list.length : 0;
+        var message, updates, storeKey;
+
+        // Ensure no null subject, leave message var inited for below
+        while ( l-- ) {
+            message = list[l];
+            if ( message.subject === null ) {
+                message.subject = '';
+            }
+        }
 
         if ( !message || message.receivedAt ) {
-            this.didFetch( Message, args );
-        } else if ( !isEqual( reqArgs.properties, [ 'threadId' ] ) ) {
-            updates = args.list.reduce( function ( updates, message ) {
+            this.didFetch( Message, args, false );
+        } else if ( message.mailboxIds ) {
+            // keywords/mailboxIds (OBSOLETE message refreshed)
+            updates = list.reduce( function ( updates, message ) {
                 updates[ message.id ] = message;
                 return updates;
             }, {} );
             store.sourceDidFetchPartialRecords( accountId, Message, updates );
+        } else if ( !isEqual( reqArgs.properties, [ 'threadId' ] ) ) {
+            // This is all immutable data with no foreign key refs, so we don't
+            // need to use sourceDidFetchPartialRecords, and this let's us
+            // work around a bug where the data is discarded if the message
+            // is currently COMMITTING (e.g. moved or keywords changed).
+            l = list.length;
+            while ( l-- ) {
+                message = list[l];
+                storeKey = store.getStoreKey( accountId, Message, message.id );
+                if ( store.getStatus( storeKey ) & READY ) {
+                    store.updateData( storeKey, message, false );
+                }
+            }
         }
     },
 
@@ -531,16 +597,20 @@ mail.handle( Message, {
                 } else {
                     this.messageChangesMaxChanges = 150;
                 }
-                this.get( 'store' ).fetchAll( args.accountId, Message, true );
+                this.fetchMoreChanges( args.accountId, Message );
                 return;
             } else {
                 // We've fetched 300 updates and there's still more. Let's give
                 // up and reset.
                 this.response[ 'error_Email/changes_cannotCalculateChanges' ]
-                    .call( this, args );
+                    .apply( this, arguments );
             }
         }
         this.messageChangesMaxChanges = 50;
+    },
+
+    'Email/copy': function ( args, _, reqArgs ) {
+        this.didCopy( Message, args, reqArgs );
     },
 
     'error_Email/changes_cannotCalculateChanges': function ( _, __, reqArgs ) {
@@ -564,9 +634,9 @@ mail.handle( Message, {
         // If we did a set implicitly on successful send, the change is not in
         // the store, so don't call didCommit. Instead we tell the store the
         // updates the server has made.
+        var store = this.get( 'store' );
+        var accountId = reqArgs.accountId;
         if ( reqName === 'EmailSubmission/set' ) {
-            var store = this.get( 'store' );
-            var accountId = reqArgs.accountId;
             var create = reqArgs.create;
             var onSuccessUpdateEmail = reqArgs.onSuccessUpdateEmail;
             var onSuccessDestroyEmail = reqArgs.onSuccessDestroyEmail;
@@ -582,7 +652,8 @@ mail.handle( Message, {
                     storeKey = store.getStoreKey( accountId, Message, emailId );
                 }
                 id = '#' + id;
-                if (( update = onSuccessUpdateEmail[ id ] )) {
+                if ( onSuccessUpdateEmail &&
+                        ( update = onSuccessUpdateEmail[ id ] )) {
                     // If we've made further changes since this commit, bail
                     // out. This is just an optimisation, and we'll fetch the
                     // real changes from the source instead automatically if
@@ -608,7 +679,8 @@ mail.handle( Message, {
                         applyPatch( data, path, update[ path ] );
                     }
                     updates[ emailId ] = data;
-                } else if ( onSuccessDestroyEmail.contains( id ) ) {
+                } else if ( onSuccessDestroyEmail &&
+                        onSuccessDestroyEmail.contains( id ) ) {
                     destroyed.push( emailId );
                 }
             }

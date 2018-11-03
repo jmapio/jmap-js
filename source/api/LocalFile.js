@@ -41,9 +41,16 @@ const LocalFile = Class({
         if ( name && name.normalize ) {
             name = name.normalize( 'NFC' );
         }
+        // If the OS doesn't have a MIME type for a file (e.g. .ini files)
+        // it will give an empty string for type. Attaching .mhtml files may
+        // give a bogus "multipart/related" MIME type.
+        var type = file.type;
+        if ( !type || type.startsWith( 'multipart/' ) ) {
+            type = 'application/octet-stream';
+        }
         this.name = name ||
             ( 'image.' + ( /\w+$/.exec( file.type ) || [ 'png' ] )[0] );
-        this.type = file.type;
+        this.type = type;
         this.size = file.size;
 
         this.isTooBig = false;
@@ -125,21 +132,26 @@ const LocalFile = Class({
         this.set( 'progress', 0 );
 
         switch ( event.status ) {
-        case 400: // Bad Request
-        case 415: // Unsupported Media Type
-            break;
+        // case 400: // Bad Request
+        // case 403: // Forbidden
+        // case 415: // Unsupported Media Type
+        //     break;
         case 401: // Unauthorized
             auth.didLoseAuthentication()
                 .addObserverForKey( 'isAuthenticated', this, 'upload' );
             break;
         case 404: // Not Found
-            auth.fetchSessions()
+            auth.fetchSession()
                 .addObserverForKey( 'uploadUrl', this, 'upload' );
             break;
         case 413: // Request Entity Too Large
             this.set( 'isTooBig', true );
             break;
-        default:  // Connection failed or 503 Service Unavailable
+        case 0:   // Connection failed
+        case 429: // Rate limited
+        case 502: // Bad Gateway
+        case 503: // Service Unavailable
+        case 504: // Gateway Timeout
             RunLoop.invokeAfterDelay( this.upload, this._backoff, this );
             this._backoff = Math.min( this._backoff * 2, 30000 );
             return;
