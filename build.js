@@ -123,7 +123,7 @@ var makeModule = function ( inputs, output ) {
 
     module += sortByDependencies( jsData ).join( '\n\n' );
 
-    fs.writeFile( output, module );
+    fs.writeFileSync( output, module );
 };
 
 var args = process.argv.slice( 2 ),
