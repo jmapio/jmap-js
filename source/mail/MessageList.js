@@ -314,7 +314,7 @@ JMAP.mail.handle( MessageList, {
     // ---
 
     'Email/query': function ( args, _, reqArgs ) {
-        const query = this.get( 'store' ).getQuery( getId( args ) );
+        const query = this.get( 'store' ).getQuery( getId( reqArgs ) );
         var total, hasTotal, numIds;
         if ( query ) {
             if ( args.total === undefined ) {
