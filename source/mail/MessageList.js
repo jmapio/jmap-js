@@ -16,6 +16,7 @@ const isEqual = O.isEqual;
 const Status = O.Status;
 const EMPTY = Status.EMPTY;
 const READY = Status.READY;
+const NEW = Status.NEW;
 const OBSOLETE = Status.OBSOLETE;
 const LOADING = Status.LOADING;
 
@@ -107,7 +108,7 @@ const MessageList = Class({
         req.records = req.records.filter( function ( req ) {
             var i = req.start;
             var l = i + req.count;
-            var message, thread, messageSK;
+            var message, thread, messageSK, status;
 
             if ( length ) {
                 l = Math.min( l, length );
@@ -125,7 +126,13 @@ const MessageList = Class({
                 // Fetch the Message objects (if not already fetched).
                 // If already fetched, fetch the updates
                 if ( collapseThreads ) {
-                    if ( store.getStatus( messageSK ) & READY ) {
+                    status = store.getStatus( messageSK );
+                    // If it's a draft pre-emptively added to the message
+                    // list, ignore it
+                    if ( status & NEW ) {
+                        continue;
+                    }
+                    if ( status & READY ) {
                         thread = store.getRecordFromStoreKey( messageSK )
                                       .get( 'thread' );
                         // If already fetched, fetch the updates
@@ -356,9 +363,10 @@ JMAP.mail.handle( MessageList, {
         }
     },
 
-    'Email/queryChanges': function ( args ) {
-        const query = this.get( 'store' ).getQuery( getId( args ) );
+    'Email/queryChanges': function ( args, _, reqArgs ) {
+        const query = this.get( 'store' ).getQuery( getId( reqArgs ) );
         if ( query ) {
+            args.upToId = reqArgs.upToId;
             query.sourceDidFetchUpdate( args );
         }
     },
@@ -387,9 +395,9 @@ JMAP.mail.handle( MessageList, {
 
     // ---
 
-    'SearchSnippet/get': function ( args ) {
+    'SearchSnippet/get': function ( args, _, reqArgs ) {
         var store = this.get( 'store' );
-        var where = args.filter;
+        var where = reqArgs.filter;
         var list = args.list;
         var accountId = args.accountId;
         store.getAllQueries().forEach( function ( query ) {

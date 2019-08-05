@@ -6,7 +6,7 @@
 
 /*global O, JMAP */
 
-"use strict";
+'use strict';
 
 ( function ( JMAP ) {
 
@@ -58,14 +58,14 @@ const VacationResponse = Class({
     }.property( 'fromDate', 'toDate' ),
 });
 VacationResponse.__guid__ = 'VacationResponse';
-VacationResponse.dataGroup = 'mail';
+VacationResponse.dataGroup = 'urn:ietf:params:jmap:vacationresponse';
 
 mail.handle( VacationResponse, {
 
     precedence: 3,
 
-    fetch: 'VacationResponse/get',
-    commit: 'VacationResponse/set',
+    fetch: 'VacationResponse',
+    commit: 'VacationResponse',
 
     // ---
 

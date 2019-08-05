@@ -21,6 +21,7 @@ const Obj = O.Object;
 const applyPatch = JMAP.Connection.applyPatch;
 const makePatches = JMAP.Connection.makePatches;
 const CalendarEvent = JMAP.CalendarEvent;
+const Duration = JMAP.Duration;
 
 // ---
 
@@ -112,7 +113,7 @@ const proxyOverrideAttibute = function ( Type, key, attrKey ) {
             }
         }
         return value;
-    }.property( 'overrides', 'original.' + key );
+    }.property( 'overrides', 'original.' + key ).doNotNotify();
 };
 
 const proxyAttribute = function ( _, key ) {
@@ -164,7 +165,7 @@ const CalendarEventOccurrence = Class({
             return this;
         }
         return original.getDoppelganger( store )
-                       ._getOccurrenceForRecurrenceId( this.id );
+                       .getOccurrenceForRecurrenceId( this.id );
     },
 
     clone: function ( store ) {
@@ -241,7 +242,7 @@ const CalendarEventOccurrence = Class({
     isAllDay: proxyAttribute,
 
     start: proxyOverrideAttibute( Date, 'start' ),
-    duration: proxyOverrideAttibute( JMAP.Duration, 'duration' ),
+    duration: proxyOverrideAttibute( Duration, 'duration' ),
     timeZone: proxyOverrideAttibute( TimeZone, 'timeZone' ),
     recurrenceRule: proxyAttribute,
     recurrenceOverrides: null,

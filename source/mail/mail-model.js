@@ -200,8 +200,10 @@ const comparators = {
         };
         var aThread = a.get( 'thread' );
         var bThread = b.get( 'thread' );
-        var aHasKeyword = aThread.get( 'messages' ).some( hasKeyword );
-        var bHasKeyword = bThread.get( 'messages' ).some( hasKeyword );
+        var aMessages = aThread ? aThread.get( 'messages' ) : [ a ];
+        var bMessages = bThread ? bThread.get( 'messages' ) : [ b ];
+        var aHasKeyword = aMessages.some( hasKeyword );
+        var bHasKeyword = bMessages.some( hasKeyword );
 
         return aHasKeyword === bHasKeyword ? 0 :
             aHasKeyword ? 1 : -1;
@@ -415,7 +417,7 @@ const getMessages = function getMessages ( messageSKs, expand, mailbox, callback
             if ( store.getStatus( messageSK ) & READY ) {
                 thread = store.getRecordFromStoreKey( messageSK )
                               .get( 'thread' );
-                if ( thread.is( READY ) ) {
+                if ( thread && thread.is( READY ) ) {
                     thread.get( 'messages' ).forEach( checkMessage );
                 } else {
                     allLoaded = false;
@@ -497,7 +499,25 @@ const getMailboxForRole = function ( accountId, role ) {
 
 // ---
 
+const logACLsError = function ( type, mailbox ) {
+    var name = mailbox.get( 'name' );
+    O.RunLoop.didError({
+        name: 'JMAP.mail.move',
+        message: 'May not ' + type + ' messages in ' + name,
+        details: {
+            status: mailbox.get( 'status' ),
+            myRights: mailbox.get( 'myRights' ),
+        },
+    });
+};
+
 Object.assign( connection, {
+
+    NO: NO,
+    TO_MAILBOX: TO_MAILBOX,
+    TO_THREAD_IN_NOT_TRASH: TO_THREAD_IN_NOT_TRASH,
+    TO_THREAD_IN_TRASH: TO_THREAD_IN_TRASH,
+    TO_THREAD: TO_THREAD,
 
     getMessages: getMessages,
 
@@ -620,6 +640,10 @@ Object.assign( connection, {
                         redoStack.pop();
                         this.set( 'canRedo', !!redoStack.length );
                     }
+                    // This could get called synchronously before applyChange
+                    // returns depending on the undoAction; set pending to null
+                    // to ensure we don't add a noop to the redo stack.
+                    pending = null;
                 }
                 this.pending = [];
             }.bind( this );
@@ -798,19 +822,12 @@ Object.assign( connection, {
         // Check ACLs
         if ( addMailbox && ( !addMailbox.is( READY ) ||
                 !addMailbox.get( 'myRights' ).mayAddItems ) ) {
-            O.RunLoop.didError({
-                name: 'JMAP.mail.move',
-                message: 'May not add messages to ' + addMailbox.get( 'name' ),
-            });
+            logACLsError( 'add', addMailbox );
             return this;
         }
         if ( removeMailbox && ( !removeMailbox.is( READY ) ||
                 !removeMailbox.get( 'myRights' ).mayRemoveItems ) ) {
-            O.RunLoop.didError({
-                name: 'JMAP.mail.move',
-                message: 'May not remove messages from ' +
-                    removeMailbox.get( 'name' ),
-            });
+            logACLsError( 'remove', removeMailbox );
             return this;
         }
 
@@ -1288,11 +1305,10 @@ Object.assign( connection, {
 
     // ---
 
-    redirect: function ( messages, identity, to ) {
-        var accountId = identity.get( 'accountId' );
+    redirect: function ( messages, to ) {
         var envelope = {
             mailFrom: {
-                email: identity.get( 'email' ),
+                email: auth.get( 'username' ),
                 parameters: null,
             },
             rcptTo: to.map( function ( address ) {
@@ -1305,8 +1321,8 @@ Object.assign( connection, {
 
         return messages.map( function ( message ) {
             return new MessageSubmission( store )
-                .set( 'accountId', accountId )
-                .set( 'identity', identity )
+                .set( 'accountId', message.get( 'accountId' ) )
+                .set( 'identity', null )
                 .set( 'message', message )
                 .set( 'envelope', envelope )
                 .saveToStore();

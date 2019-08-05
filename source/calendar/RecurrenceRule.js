@@ -374,7 +374,12 @@ const RecurrenceRule = Class({
         this.bySetPosition = json.bySetPosition || null;
 
         this.until = json.until ? Date.fromJSON( json.until ) : null;
-        this.count = json.count || null;
+        // Arbitrary limit of 2^14 – after that ignore the count and treat as
+        // inifinite; we presume we can list all occurrences if there is a
+        // count without being too expensive. Don't die trying to compute them
+        // if someone accidentally or on purpose puts a pathologically large
+        // count.
+        this.count = json.count < 16384 && json.count || null;
     },
 
     toJSON: function () {
@@ -463,6 +468,10 @@ const RecurrenceRule = Class({
         }
         if ( !end && !until && !count ) {
             count = 2;
+        }
+        if ( until && until <= start ) {
+            until = null;
+            count = 1;
         }
         if ( until && ( !end || end > until ) ) {
             end = new Date( +until + 1000 );

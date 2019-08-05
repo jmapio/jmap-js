@@ -12,7 +12,9 @@
 
 const meta = O.meta;
 const Class = O.Class;
-const ObservableArray = O.ObservableArray;
+const Obj = O.Object;
+const Enumerable = O.Enumerable;
+const ObservableRange = O.ObservableRange;
 const Record = O.Record;
 const READY = O.Status.READY;
 
@@ -78,6 +80,70 @@ const size = function( property ) {
     }.property( 'messages' ).nocache();
 };
 
+// ---
+
+const MessageArray = Class({
+
+    Extends: Obj,
+
+    Mixin: [ ObservableRange, Enumerable ],
+
+    init ( store, storeKeys ) {
+        this._store = store;
+        this._storeKeys = storeKeys;
+
+        MessageArray.parent.constructor.call( this );
+    },
+
+    length: function () {
+        return this._storeKeys.length;
+    }.property().nocache(),
+
+    getObjectAt ( index ) {
+        var storeKey = this._storeKeys[ index ];
+        if ( storeKey ) {
+            return this._store.materialiseRecord( storeKey );
+        }
+    },
+
+    update: function ( storeKeys ) {
+        var oldStoreKeys = this._storeKeys;
+        var oldLength = oldStoreKeys.length;
+        var newLength = storeKeys.length;
+        var start = 0;
+        var end = newLength;
+
+        this._storeKeys = storeKeys;
+
+        while ( ( start < newLength ) &&
+                ( storeKeys[ start ] === oldStoreKeys[ start ] ) ) {
+            start += 1;
+        }
+        if ( newLength === oldLength ) {
+            var last = end - 1;
+            while ( ( end > start ) &&
+                    ( storeKeys[ last ] === oldStoreKeys[ last ] ) ) {
+                end = last;
+                last -= 1;
+            }
+        } else {
+            end = Math.max( oldLength, newLength );
+            this.propertyDidChange( 'length', oldLength, newLength );
+        }
+
+        if ( start !== end ) {
+            this.rangeDidChange( start, end );
+        }
+        return this;
+    },
+});
+
+const toStoreKey = function ( record ) {
+    return record.get( 'storeKey' );
+};
+
+// ---
+
 const Thread = Class({
 
     Extends: Record,
@@ -89,29 +155,31 @@ const Thread = Class({
     }),
 
     messagesInNotTrash: function () {
-        return new ObservableArray(
-            this.get( 'messages' ).filter( isInNotTrash )
+        return new MessageArray(
+            this.get( 'store' ),
+            this.get( 'messages' ).filter( isInNotTrash ).map( toStoreKey )
         );
     }.property(),
 
     messagesInTrash: function () {
-        return new ObservableArray(
-            this.get( 'messages' ).filter( isInTrash )
+        return new MessageArray(
+            this.get( 'store' ),
+            this.get( 'messages' ).filter( isInTrash ).map( toStoreKey )
          );
     }.property(),
 
-    _setMessagesArrayContent: function () {
+    _setSubsetMessagesContent: function () {
         var cache = meta( this ).cache;
         var messagesInNotTrash = cache.messagesInNotTrash;
         var messagesInTrash = cache.messagesInTrash;
         if ( messagesInNotTrash ) {
-            messagesInNotTrash.set( '[]',
-                this.get( 'messages' ).filter( isInNotTrash )
+            messagesInNotTrash.update(
+                this.get( 'messages' ).filter( isInNotTrash ).map( toStoreKey )
             );
         }
         if ( messagesInTrash ) {
-            messagesInTrash.set( '[]',
-                this.get( 'messages' ).filter( isInTrash )
+            messagesInTrash.update(
+                this.get( 'messages' ).filter( isInTrash ).map( toStoreKey )
             );
         }
     }.observes( 'messages' ),

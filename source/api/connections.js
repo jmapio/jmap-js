@@ -52,11 +52,10 @@ const source = new AggregateSource({
     },
 });
 
-const getDefaultAccountId = function ( Type ) {
+// (Overriding from Overture, at a designated extension point.)
+Store.prototype.getPrimaryAccountIdForType = function ( Type ) {
     return auth.get( 'primaryAccounts' )[ Type.dataGroup ];
 };
-Store.implement({ getDefaultAccountId: getDefaultAccountId }, true );
-NestedStore.implement({ getDefaultAccountId: getDefaultAccountId }, true );
 
 const store = new Store({
     source: source,
@@ -68,7 +67,8 @@ const store = new Store({
         for ( accountId in accounts ) {
             account = accounts[ accountId ];
             this.addAccount( accountId, {
-                isDefault: accountId === primaryMailAccountId,
+                replaceAccountId: accountId === primaryMailAccountId ?
+                    'PLACEHOLDER MAIL ACCOUNT ID' : undefined,
                 hasDataFor: account.hasDataFor,
             });
         }

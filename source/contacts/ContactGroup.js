@@ -33,6 +33,8 @@ const ContactGroup = Class({
             !auth.get( 'accounts' )[ accountId ].isReadOnly;
     }.property( 'accountId' ),
 
+    uid: attr( String ),
+
     name: attr( String, {
         defaultValue: '',
         validate: function ( propValue/*, propKey, record*/ ) {
@@ -64,8 +66,12 @@ const ContactGroup = Class({
         return index;
     }.property( 'contacts' ),
 
+    containsStoreKey: function ( storeKey ) {
+        return !!this.get( 'contactIndex' )[ storeKey ];
+    },
+
     contains: function ( contact ) {
-        return !!this.get( 'contactIndex' )[ contact.get( 'storeKey' ) ];
+        return this.containsStoreKey( contact.get( 'storeKey' ) );
     },
 
     addContact: function ( contact ) {

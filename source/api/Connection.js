@@ -8,7 +8,7 @@
 
 'use strict';
 
-( function ( JMAP, performance, undefined ) {
+( function ( JMAP, undefined ) {
 
 const isEqual = O.isEqual;
 const loc = O.loc;
@@ -17,10 +17,16 @@ const Class = O.Class;
 const RunLoop = O.RunLoop;
 const HttpRequest = O.HttpRequest;
 const Source = O.Source;
+const LOADING = O.Status.LOADING;
 
 const auth = JMAP.auth;
 
 // ---
+
+const serverUnavailable = function ( methodResponse ) {
+    return methodResponse[0] === 'error' &&
+        methodResponse[1].type === 'serverUnavailable';
+};
 
 const applyPatch = function ( object, path, patch ) {
     var slash, key;
@@ -132,6 +138,15 @@ const makeSetRequest = function ( change, noPatch ) {
     } : null;
 };
 
+const hasResultReference = function ( methodCall ) {
+    for ( var key in methodCall[1] ) {
+        if ( key.charAt( 0 ) === '#' ) {
+            return true;
+        }
+    }
+    return false;
+};
+
 const handleProps = {
     precedence: 'commitPrecedence',
     fetch: 'recordFetchers',
@@ -201,8 +216,11 @@ const Connection = Class({
         this._typesToFetch = {};
         // Map of accountId -> guid( Type ) -> Id -> true
         this._recordsToFetch = {};
+        // Map of guid( Type ) -> Type
+        this._typeIdToType = {};
 
-        this._timing = undefined;
+        // { createdIds: {...}, doneCount, sentCount }
+        this._inFlightContext = null;
 
         this.inFlightRemoteCalls = null;
         this.inFlightCallbacks = null;
@@ -212,15 +230,6 @@ const Connection = Class({
     },
 
     prettyPrint: false,
-
-    /**
-        Property: JMAP.Connection#sendTiming
-        Type: Object|null
-
-        If an object, these properties (from the performance API) for the
-        previous request will be sent with the next request
-    */
-    sendTiming: false,
 
     /**
         Property: JMAP.Connection#willRetry
@@ -240,6 +249,17 @@ const Connection = Class({
     timeout: 30000,
 
     /**
+        Property: JMAP.Connection#timeout
+        Type: Number
+
+        Time in milliseconds at which to time out the request once it has
+        finished uploading to the server; this is set higher than the initial
+        timeout so if the OS is buffering the upload we don't timeout on slow
+        connections.
+    */
+    timeoutAfterUpload: 120000,
+
+    /**
         Property: JMAP.Connection#inFlightRequest
         Type: (O.HttpRequest|null)
 
@@ -247,11 +267,18 @@ const Connection = Class({
     */
     inFlightRequest: null,
 
+    ioDidProgressUpload: function ( event ) {
+        if ( event.loaded === event.total ) {
+            this.get( 'inFlightRequest' )
+                .set( 'timeout', this.get( 'timeoutAfterUpload' ) );
+        }
+    }.on( 'io:uploadProgress' ),
+
     /**
         Method: JMAP.Connection#ioDidSucceed
 
         Callback when the IO succeeds. Parses the JSON and passes it on to
-        <JMAP.Connection#receive>.
+        <JMAP.Connection#handleResponses>.
 
         Parameters:
             event - {IOEvent}
@@ -260,44 +287,56 @@ const Connection = Class({
         var data = event.data;
         var methodResponses = data && data.methodResponses;
         var sessionState = data && data.sessionState;
-        var sendTiming = this.get( 'sendTiming' );
-        var timing, entry, key;
-        if ( !methodResponses ) {
-            RunLoop.didError({
-                name: 'JMAP.Connection#ioDidSucceed',
-                message: 'No method responses received.',
-                details: 'Request:\n' +
-                    JSON.stringify( this.get( 'inFlightRemoteCalls' ), null, 2 )
-            });
-            methodResponses = [];
+        var inFlightRemoteCalls = this.get( 'inFlightRemoteCalls' );
+        if ( !methodResponses || methodResponses.some( serverUnavailable ) ) {
+            // Successful response code but no method responses happens
+            // occasionally; I don't know why, some kind of broken proxy
+            // changing the status code perhaps? Treat as a connection failure.
+            //
+            // serverUnavailable error is a tricky one. Technically we should
+            // just be retrying those method calls and not the whole lot but
+            // this is easier to do for now and in practice it's very unusual
+            // for one to return this error and not everything. Most requests
+            // are idempotent too, so this behaviour is not ridiculous.
+            if ( this.get( 'willRetry' ) ) {
+                auth.connectionFailed( this );
+                return;
+            } else if ( !methodResponses ) {
+                methodResponses = [];
+            }
         }
 
         auth.connectionSucceeded( this );
-
-        this.receive(
-            methodResponses,
-            this.get( 'inFlightCallbacks' ),
-            this.get( 'inFlightRemoteCalls' )
-        );
-
-        if ( sendTiming && performance && performance.getEntriesByName ) {
-            entry = performance
-                .getEntriesByName( event.target.get( 'url' ) ).last();
-            if ( entry ) {
-                timing = { id: event.headers[ 'x-request-id' ] };
-                for ( key in entry ) {
-                    if ( sendTiming[ key ] ) {
-                        timing[ key ] = entry[ key ];
-                    }
-                }
-            }
-        }
-        this._timing = timing;
 
         if ( sessionState && sessionState !== auth.get( 'state' ) ) {
             auth.fetchSession();
         }
 
+        this.handleResponses(
+            methodResponses,
+            inFlightRemoteCalls,
+            event
+        );
+
+
+        // Need to send the next page if there were too many method calls to
+        // send at once.
+        var inFlightContext = this._inFlightContext;
+        if ( inFlightContext &&
+                inFlightContext.doneCount + inFlightContext.sentCount <
+                inFlightRemoteCalls.length ) {
+            inFlightContext.doneCount += inFlightContext.sentCount;
+            inFlightContext.createdIds = data.createdIds;
+            return;
+        }
+
+        this.processCallbacks(
+            this.get( 'inFlightCallbacks' ),
+            methodResponses,
+            inFlightRemoteCalls
+        );
+
+        this._inFlightContext = null;
         this.set( 'inFlightRemoteCalls', null )
             .set( 'inFlightCallbacks', null );
     }.on( 'io:success' ),
@@ -367,9 +406,9 @@ const Connection = Class({
         }
 
         if ( discardRequest ) {
-            this.receive(
-                [],
+            this.processCallbacks(
                 this.get( 'inFlightCallbacks' ),
+                [],
                 this.get( 'inFlightRemoteCalls' )
             );
 
@@ -508,11 +547,16 @@ const Connection = Class({
         return false;
     },
 
+    willSendRequest: function ( request/*, headers*/ ) {
+        return JSON.stringify( request, null,
+            this.get( 'prettyPrint' ) ? 2 : 0 );
+    },
+
     headers: function () {
         return {
             'Content-type': 'application/json',
             'Accept': 'application/json',
-            'Authorization': 'Bearer ' + auth.get( 'accessToken' )
+            'Authorization': 'Bearer ' + auth.get( 'accessToken' ),
         };
     }.property().nocache(),
 
@@ -532,9 +576,44 @@ const Connection = Class({
         if ( !remoteCalls ) {
             request = this.makeRequest();
             remoteCalls = request[0];
-            if ( !remoteCalls.length ) { return; }
+            if ( !remoteCalls.length ) {
+                return;
+            }
             this.set( 'inFlightRemoteCalls', remoteCalls );
             this.set( 'inFlightCallbacks', request[1] );
+        }
+        var headers = this.get( 'headers' );
+        var capabilities = auth.get( 'capabilities' );
+        var maxCallsInRequest =
+            capabilities[ 'urn:ietf:params:jmap:core' ].maxCallsInRequest;
+        var inFlightContext = this._inFlightContext;
+        var createdIds = undefined;
+
+        if ( !inFlightContext && remoteCalls.length > maxCallsInRequest ) {
+            inFlightContext = {
+                createdIds: {},
+                doneCount: 0,
+                sentCount: 0,
+            };
+            this._inFlightContext = inFlightContext;
+        }
+        if ( inFlightContext ) {
+            var start = inFlightContext.doneCount;
+            var end = start + maxCallsInRequest;
+            if ( end < remoteCalls.length ) {
+                while ( end > start + 1 ) {
+                    // We presume any back references are always to the previous
+                    // method call and never "jump". If we start doing something
+                    // different we'll have to add more logic.
+                    if ( !hasResultReference( remoteCalls[ end ] ) ) {
+                        break;
+                    }
+                    end -= 1;
+                }
+            }
+            remoteCalls = remoteCalls.slice( start, end );
+            inFlightContext.sentCount = remoteCalls.length;
+            createdIds = inFlightContext.createdIds;
         }
 
         this.set( 'inFlightRequest',
@@ -543,20 +622,20 @@ const Connection = Class({
                 timeout: this.get( 'timeout' ),
                 method: 'POST',
                 url: auth.get( 'apiUrl' ),
-                headers: this.get( 'headers' ),
+                headers: headers,
                 withCredentials: true,
                 responseType: 'json',
-                data: JSON.stringify({
-                    using: Object.keys( auth.get( 'capabilities' ) ),
-                    timing: this._timing,
+                data: this.willSendRequest({
+                    using: Object.keys( capabilities ),
                     methodCalls: remoteCalls,
-                }, null, this.get( 'prettyPrint' ) ? 2 : 0 ),
+                    createdIds: createdIds,
+                }, headers ),
             }).send()
         );
     }.queue( 'after' ),
 
     /**
-        Method: JMAP.Connection#receive
+        Method: JMAP.Connection#handleResponses
 
         After completing a request, this method is called to process the
         response returned by the server.
@@ -564,15 +643,12 @@ const Connection = Class({
         Parameters:
             data        - {Array} The array of method calls to execute in
                           response to the request.
-            callbacks   - {Array} The array of callbacks to execute after the
-                          data has been processed.
             remoteCalls - {Array} The array of method calls that was executed on
                           the server.
     */
-    receive: function ( data, callbacks, remoteCalls ) {
+    handleResponses: function ( data, remoteCalls/*, event*/ ) {
         var handlers = this.response;
-        var i, l, response, handler, tuple, id, callback, request;
-        var matchingResponse;
+        var i, l, response, handler, id, request;
         for ( i = 0, l = data.length; i < l; i += 1 ) {
             response = data[i];
             handler = handlers[ response[0] ];
@@ -586,6 +662,21 @@ const Connection = Class({
                 }
             }
         }
+    },
+
+    /**
+        Method: JMAP.Connection#processCallbacks
+
+        After completing a request, this method is called to process the
+        callbackss
+
+        Parameters:
+            callbacks   - {Array} The array of callbacks.
+            data        - {Array} The array of method call responses.
+            remoteCalls - {Array} The array of method call requests
+    */
+    processCallbacks: function ( callbacks, methodResponses, methodCalls ) {
+        var i, l, matchingResponse, id, request, response, tuple, callback;
         // Invoke after bindings to ensure all data has propagated through.
         if (( l = callbacks.length )) {
             matchingResponse = function ( call ) {
@@ -596,8 +687,10 @@ const Connection = Class({
                 id = tuple[0];
                 callback = tuple[1];
                 if ( id ) {
-                    request = remoteCalls[+id];
-                    response = data.find( matchingResponse ) || NO_RESPONSE;
+                    request = methodCalls[+id];
+                    response =
+                        methodResponses.find( matchingResponse ) ||
+                        NO_RESPONSE;
                     callback = callback.bind( null,
                         response[1], response[0], request[1] );
                 }
@@ -609,7 +702,8 @@ const Connection = Class({
     /**
         Method: JMAP.Connection#makeRequest
 
-        This will make calls to JMAP.Connection#(record|query)(Fetchers|Refreshers)
+        This will make calls to
+        JMAP.Connection#(record|query)(Fetchers|Refreshers)
         to add any final API calls to the send queue, then return a tuple of the
         queue of method calls and the list of callbacks.
 
@@ -761,8 +855,8 @@ const Connection = Class({
         Method: JMAP.Connection#refreshRecord
 
         Fetches any new data for a record since the last fetch if a handler for
-        the type is defined in <JMAP.Connection#recordRefreshers>, or refetches the
-        whole record if not.
+        the type is defined in <JMAP.Connection#recordRefreshers>, or refetches
+        the whole record if not.
 
         Parameters:
             Type     - {O.Class} The record type.
@@ -991,6 +1085,7 @@ const Connection = Class({
         }
         if ( Type ) {
             Type.source = this;
+            this._typeIdToType[ typeId ] = Type;
         }
         return this;
     },
@@ -1185,18 +1280,17 @@ const Connection = Class({
 
         'error_/get': function ( args, requestName, requestArgs ) {
             var ids = requestArgs.ids;
-            var accountId = requestArgs.accountId;
-            if ( !ids ) {
-                return;
+            if ( ids ) {
+                var store = this.get( 'store' );
+                var accountId = requestArgs.accountId;
+                var typeId = requestName.slice( 0, requestName.indexOf( '/' ) );
+                var Type = this._typeIdToType[ typeId ];
+                ids.forEach( function ( id ) {
+                    var storeKey = store.getStoreKey( accountId, Type, id );
+                    var status = store.getStatus( storeKey );
+                    store.setStatus( storeKey, status & ~LOADING );
+                });
             }
-            var fakeArgs = {
-                accountId: accountId,
-                list: null,
-                notFound: ids,
-                state: null,
-            };
-            this.response[ requestName ].call( this,
-                fakeArgs, requestName, requestArgs );
         },
 
         'error_/set': function ( args, requestName, requestArgs ) {
@@ -1221,8 +1315,10 @@ const Connection = Class({
                         return notDestroyed;
                     }, {} ) : null,
             };
-            this.response[ requestName ].call( this,
-                fakeArgs, requestName, requestArgs );
+            var handler = this.response[ requestName ];
+            if ( handler ) {
+                handler.call( this, fakeArgs, requestName, requestArgs );
+            }
         },
 
 
@@ -1236,34 +1332,49 @@ const Connection = Class({
                         return notCreated;
                     }, {} ) : null,
             };
-            this.response[ requestName ].call( this,
-                fakeArgs, requestName, requestArgs );
+            var handler = this.response[ requestName ];
+            if ( handler ) {
+                handler.call( this, fakeArgs, requestName, requestArgs );
+            }
         },
 
         // ---
 
+        // eslint-disable-next-line camelcase
         error_accountNotFound: function (/* args, requestName, requestArgs */) {
             auth.fetchSession();
         },
+
+        // eslint-disable-next-line camelcase
         error_accountReadOnly: function (/* args, requestName, requestArgs */) {
             auth.fetchSession();
         },
-        error_accountNotSupportedByMethod: function (/* args, requestName, requestArgs */) {
+
+        // eslint-disable-next-line camelcase
+        error_accountNotSupportedByMethod:
+                function (/* args, requestName, requestArgs */) {
             auth.fetchSession();
         },
 
+        // eslint-disable-next-line camelcase
         error_serverFail: function ( args/*, requestName, requestArgs*/ ) {
             console.log( 'Server error: ' + JSON.stringify( args, null, 2 ) );
         },
+
+        // eslint-disable-next-line camelcase
         error_unknownMethod: function ( args, requestName/*, requestArgs*/ ) {
             // eslint-disable-next-line no-console
             console.log( 'Unknown API call made: ' + requestName );
         },
+
+        // eslint-disable-next-line camelcase
         error_invalidArguments: function ( args, requestName, requestArgs ) {
             // eslint-disable-next-line no-console
             console.log( 'API call to ' + requestName +
                 ' made with invalid arguments: ', requestArgs );
         },
+
+        // eslint-disable-next-line camelcase
         error_requestTooLarge: function ( args, requestName, requestArgs ) {
             // eslint-disable-next-line no-console
             console.log( 'API call to ' + requestName +
@@ -1279,4 +1390,4 @@ Connection.applyPatch = applyPatch;
 
 JMAP.Connection = Connection;
 
-}( JMAP, window.performance || null ) );
+}( JMAP ) );

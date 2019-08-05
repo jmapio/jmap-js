@@ -136,7 +136,7 @@ Calendar.dataGroup = 'urn:ietf:params:jmap:calendars';
 
 JMAP.calendar.handle( Calendar, {
 
-    precedence: 1,
+    precedence: 2,
 
     fetch: 'Calendar',
     refresh: 'Calendar',

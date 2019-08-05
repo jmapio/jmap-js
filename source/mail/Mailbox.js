@@ -85,6 +85,10 @@ const Mailbox = Class({
 
     // ---
 
+    isSubscribed: attr( Boolean, {
+        defaultValue: true,
+    }),
+
     myRights: attr( Object, {
         defaultValue: {
             mayReadItems: true,
@@ -234,12 +238,7 @@ connection.handle( Mailbox, {
 
     precedence: 0,
 
-    fetch: function ( accountId, ids ) {
-        this.callMethod( 'Mailbox/get', {
-            accountId: accountId,
-            ids: ids || null,
-        });
-    },
+    fetch: 'Mailbox',
 
     refresh: function ( accountId, ids, state ) {
         var get = 'Mailbox/get';

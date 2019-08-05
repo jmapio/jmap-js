@@ -10,6 +10,7 @@
 
 ( function ( JMAP ) {
 
+const isDestroyed = O.isDestroyed;
 const Class = O.Class;
 const Obj = O.Object;
 const RunLoop = O.RunLoop;
@@ -43,9 +44,12 @@ const LocalFile = Class({
         }
         // If the OS doesn't have a MIME type for a file (e.g. .ini files)
         // it will give an empty string for type. Attaching .mhtml files may
-        // give a bogus "multipart/related" MIME type.
+        // give a bogus "multipart/related" MIME type. The OS may have a bogus
+        // content type (e.g. sketchup was (is?) settings "SKP" as the content
+        // type on Windows); if there's no slash, ignore the type.
         var type = file.type;
-        if ( !type || type.startsWith( 'multipart/' ) ) {
+        if ( !type || type.startsWith( 'multipart/' ) ||
+                !type.contains( '/' ) ) {
             type = 'application/octet-stream';
         }
         this.name = name ||
@@ -77,7 +81,7 @@ const LocalFile = Class({
         if ( obj && key ) {
             obj.removeObserverForKey( key, this, 'upload' );
         }
-        if ( !this.isDestroyed ) {
+        if ( !isDestroyed( this ) ) {
             upload.send(
                 this._request = new HttpRequest({
                     nextEventTarget: this,
@@ -116,7 +120,7 @@ const LocalFile = Class({
 
         // Was there an error?
         if ( !response ) {
-            return this.onFailure( event );
+            return this.uploadDidFail();
         }
 
         this.beginPropertyChanges()

@@ -337,20 +337,20 @@ mixin( calendar, {
                 event.set( 'recurrenceRule', null );
             } else {
                 event.set( 'recurrenceRule',
-                    RecurrenceRule.fromJSON( O.extend(
+                    RecurrenceRule.fromJSON( Object.assign( {}, recurrenceJSON,
                     recurrenceJSON.until ? {
                         until: allStartDates[ occurrenceIndex - 1 ].toJSON()
                     } : {
                         count: occurrenceIndex
-                    }, recurrenceJSON, true ))
+                    }))
                 );
             }
         } else if ( recurrenceRule ) {
             event.set( 'recurrenceRule',
-                RecurrenceRule.fromJSON( O.extend({
+                RecurrenceRule.fromJSON( Object.assign( {}, recurrenceJSON, {
                     count: null,
                     until: new Date( start - ( 24 * 60 * 60 * 1000 ) ).toJSON()
-                }, recurrenceJSON, true ))
+                }))
             );
         }
 
@@ -358,7 +358,7 @@ mixin( calendar, {
         if ( !isLast && recurrenceRule ) {
             if ( recurrenceJSON.count ) {
                 toEditEvent.set( 'recurrenceRule',
-                    RecurrenceRule.fromJSON( O.extend(
+                    RecurrenceRule.fromJSON( Object.assign( {}, recurrenceJSON,
                     // If there are RDATEs beyond the final normal
                     // occurrence this may result in extra events being added
                     // by the split. Left as a known issue for now.
@@ -368,7 +368,7 @@ mixin( calendar, {
                     } : {
                         count: occurrenceTotal - occurrenceIndex,
                         until: null
-                    }, recurrenceJSON, true ))
+                    }))
                 );
             } else {
                 toEditEvent.set( 'recurrenceRule', recurrenceRule );

@@ -29,6 +29,13 @@ const mail = JMAP.mail;
 
 // ---
 
+const bodyType = {
+    'text/plain': 'text',
+    'text/enriched': 'text',
+    'text/richtext': 'text',
+    'text/html': 'html',
+};
+
 const parseStructure = function  ( parts, multipartType, inAlternative,
         htmlParts, textParts, fileParts ) {
 
@@ -45,7 +52,7 @@ const parseStructure = function  ( parts, multipartType, inAlternative,
         var isImage = false;
         var isInline, subMultiType;
 
-        if ( type === 'text/plain' || type === 'text/html' ) {
+        if ( bodyType[ type ] ) {
             isTextOrHTML = true;
         } else if ( type.startsWith( 'multipart/' ) ) {
             isMultipart = true;
@@ -72,11 +79,11 @@ const parseStructure = function  ( parts, multipartType, inAlternative,
                 htmlParts, textParts, fileParts );
         } else if ( isInline ) {
             if ( multipartType === 'alternative' ) {
-                switch ( type ) {
-                case 'text/plain':
+                switch ( bodyType[ type ] ) {
+                case 'text':
                     textParts.push( part );
                     break;
-                case 'text/html':
+                case 'html':
                     htmlParts.push( part );
                     break;
                 default:
@@ -85,11 +92,13 @@ const parseStructure = function  ( parts, multipartType, inAlternative,
                 }
                 continue;
             } else if ( inAlternative ) {
-                if ( type === 'text/plain' ) {
+                switch ( bodyType[ type ] ) {
+                case 'text':
                     htmlParts = null;
-                }
-                if ( type === 'text/html' ) {
+                    break;
+                case 'html':
                     textParts = null;
+                    break;
                 }
             }
             if ( textParts ) {
@@ -186,8 +195,8 @@ const Message = Class({
 
     getThreadIfReady: function () {
         var store = this.get( 'store' );
-        var threadSK = this.getData().threadId;
-        if ( store.getStatus( threadSK ) & READY ) {
+        var data = this.getData();
+        if ( data && ( store.getStatus( data.threadId ) & READY ) ) {
             return this.get( 'thread' );
         }
         return null;
@@ -318,7 +327,10 @@ const Message = Class({
     }),
     listPost: function () {
         var urls = this.get( '_listPost' );
-        return urls && urls[0] || '';
+        var mailto = urls && urls.find( function ( url ) {
+            return url.startsWith( 'mailto:' );
+        });
+        return mailto ? mailto.slice( 7 ) : '';
     }.property( '_listPost' ),
 
     sender: attr( Array ),
@@ -358,7 +370,7 @@ const Message = Class({
 
     hasTextBody: function () {
         return this.get( 'bodyParts' ).text.some( function ( part ) {
-            return part.type === 'text/plain';
+            return bodyType[ part.type ] === 'text';
         });
     }.property( 'bodyParts' ),
 
@@ -610,6 +622,37 @@ mail.handle( Message, {
     },
 
     'Email/copy': function ( args, _, reqArgs ) {
+        var notCreated = args.notCreated;
+        var alreadyExists = notCreated ?
+            Object.keys( notCreated )
+                .filter( storeKey =>
+                    notCreated[ storeKey ].type === 'alreadyExists' ) :
+            null;
+        if ( alreadyExists && alreadyExists.length ) {
+            var create = reqArgs.create;
+            this.callMethod( 'Email/set', {
+                accountId: reqArgs.accountId,
+                update: Object.zip(
+                    alreadyExists.map( storeKey =>
+                        notCreated[ storeKey ].existingId ),
+                    alreadyExists.map( storeKey => {
+                        var patch = {};
+                        var mailboxIds = create[ storeKey ].mailboxIds;
+                        for ( var id in mailboxIds ) {
+                            patch[ 'mailboxIds/' + id ] = true;
+                        }
+                        return patch;
+                    })
+                ),
+            });
+            if ( reqArgs.onSuccessDestroyOriginal ) {
+                this.callMethod( 'Email/set', {
+                    accountId: reqArgs.fromAccountId,
+                    destroy: alreadyExists.map(
+                        storeKey => create[ storeKey ].id ),
+                });
+            }
+        }
         this.didCopy( Message, args, reqArgs );
     },
 
@@ -638,22 +681,29 @@ mail.handle( Message, {
         var accountId = reqArgs.accountId;
         if ( reqName === 'EmailSubmission/set' ) {
             var create = reqArgs.create;
+            var update = reqArgs.update;
+            var changes = Object.keys( create || {} ).reduce(
+                ( changes, creationId ) => {
+                    changes[ '#' + creationId ] = create[ creationId ];
+                    return changes;
+                },
+                update ? clone( update ) : {}
+            );
             var onSuccessUpdateEmail = reqArgs.onSuccessUpdateEmail;
             var onSuccessDestroyEmail = reqArgs.onSuccessDestroyEmail;
             var updates = {};
             var destroyed = [];
-            var emailId, storeKey, path, id, update, data;
-            for ( id in create ) {
-                emailId = create[ id ].emailId;
+            var emailId, storeKey, path, id, patch, data;
+            for ( id in changes ) {
+                emailId = changes[ id ].emailId;
                 if ( emailId.charAt( 0 ) === '#' ) {
                     storeKey = emailId.slice( 1 );
                     emailId = store.getIdFromStoreKey( storeKey );
                 } else {
                     storeKey = store.getStoreKey( accountId, Message, emailId );
                 }
-                id = '#' + id;
                 if ( onSuccessUpdateEmail &&
-                        ( update = onSuccessUpdateEmail[ id ] )) {
+                        ( patch = onSuccessUpdateEmail[ id ] )) {
                     // If we've made further changes since this commit, bail
                     // out. This is just an optimisation, and we'll fetch the
                     // real changes from the source instead automatically if
@@ -675,8 +725,8 @@ mail.handle( Message, {
                             {}
                         ),
                     };
-                    for ( path in update ) {
-                        applyPatch( data, path, update[ path ] );
+                    for ( path in patch ) {
+                        applyPatch( data, path, patch[ path ] );
                     }
                     updates[ emailId ] = data;
                 } else if ( onSuccessDestroyEmail &&

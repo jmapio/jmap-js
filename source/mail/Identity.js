@@ -52,8 +52,10 @@ const Identity = Class({
         var name = this.get( 'name' ).replace( /["\\]/g, '' );
         var email = this.get( 'email' );
         if ( name ) {
-            if ( /[,;<>@()]/.test( name ) ) {
-                name = '"' + name + '"';
+            // Need to quote unless only using atext characters
+            // https://tools.ietf.org/html/rfc5322#section-3.2.3
+            if ( !/^[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~ ]*$/.test( name ) ) {
+                name = JSON.stringify( name );
             }
             return name + ' <' + email + '>';
         }

@@ -34,7 +34,7 @@ const auth = new Obj({
             maxConcurrentUpload: 10,
             maxSizeRequest: 5000000,
             maxConcurrentRequests: 8,
-            maxCallsInRequest: 32,
+            maxCallsInRequest: 64,
             maxObjectsInGet: 1024,
             maxObjectsInSet: 1024,
             collationAlgorithms: [
@@ -43,10 +43,15 @@ const auth = new Obj({
             ],
         },
         'urn:ietf:params:jmap:mail': {
-            maxSizeAttachmentsPerEmail: 50000000,
             maxMailboxesPerEmail: 1024,
+            maxMailboxDepth: null,
+            maxSizeMailboxName: 100,
+            maxSizeAttachmentsPerEmail: 50000000,
+            emailQuerySortOptions: [ 'receivedAt' ],
+            mayCreateTopLevelMailbox: true,
+        },
+        'urn:ietf:params:jmap:submission': {
             maxDelayedSend: 0,
-            emailListSortOptions: [ 'receivedAt' ],
             submissionExtensions: [],
         },
     },
@@ -171,18 +176,13 @@ const auth = new Obj({
 
     retryIn: function ( timeToWait ) {
         // If we're not already ticking down...
-        if ( !this.get( 'timeToReconnect' ) ) {
-            // Is this a reconnection attempt already? Exponentially back off.
-            timeToWait = this.get( 'isDisconnected' ) ?
-                Math.min( this._timeToWait * 2, 300 ) :
-                timeToWait || 1;
-
+        if ( !this._timer ) {
+            if ( !timeToWait ) {
+                timeToWait = this._timeToWait;
+            }
             this.set( 'isDisconnected', true )
-                .set( 'timeToReconnect', timeToWait + 1 );
-
-            this._timeToWait = timeToWait;
+                .set( 'timeToReconnect', timeToWait );
             this._timer = RunLoop.invokePeriodically( this._tick, 1000, this );
-            this._tick();
         }
     },
 
@@ -190,16 +190,19 @@ const auth = new Obj({
         var timeToReconnect = this.get( 'timeToReconnect' ) - 1;
         this.set( 'timeToReconnect', timeToReconnect );
         if ( !timeToReconnect ) {
-            this.retryConnections();
+            this.retryConnections( true );
         }
     },
 
-    retryConnections: function () {
+    retryConnections: function ( backoffOnFail ) {
         var failedConnections = this._failedConnections;
         RunLoop.cancel( this._timer );
         this.set( 'timeToReconnect', 0 );
         this._timer = null;
         this._failedConnections = [];
+        if ( backoffOnFail ) {
+            this._timeToWait = Math.min( this._timeToWait * 2, 300 );
+        }
         failedConnections.forEach( function ( connection ) {
             connection.send();
         });

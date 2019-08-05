@@ -15,7 +15,7 @@ const toJSON = function ( date ) {
     const minute = date.getUTCMinutes();
     const second = date.getUTCSeconds();
 
-    return (
+    return date ? (
         ( year < 1000 ?
             '0' + ( year < 100 ? '0' + ( year < 10 ? '0' : '' ) : '' ) + year :
             '' + year ) + '-' +
@@ -24,19 +24,20 @@ const toJSON = function ( date ) {
         ( hour < 10 ? '0' + hour : '' + hour ) + ':' +
         ( minute < 10 ? '0' + minute : '' + minute ) + ':' +
         ( second < 10 ? '0' + second : '' + second )
-    );
+    ) : null;
 };
 
 const toUTCJSON = function ( date ) {
-    return toJSON( date ) + 'Z';
+    return date ? toJSON( date ) + 'Z' : null;
 };
 
 const toTimezoneOffsetJSON = function ( date ) {
     var offset = date.getTimezoneOffset();
-    return offset ?
+    return date ? offset ?
         toJSON( new Date( date ).add( -offset, 'minute' ) ) +
             date.format( '%z' ) :
-        toUTCJSON( date );
+        toUTCJSON( date ) :
+        null;
 };
 
 // --- Export

@@ -32,12 +32,14 @@ const numerically = function ( a, b ) {
 };
 
 const toNameAndEmail = function ( participant ) {
-    var name = participant.name.replace( /"/g, '' );
+    var name = participant.name;
     var email = participant.email;
-    return name ?
-        ( /[,;<>@()]/.test( name ) ? '"' + name + '"' : name ) +
-        ' <' + email + '>' :
-        email;
+    // Need to quote unless only using atext characters
+    // https://tools.ietf.org/html/rfc5322#section-3.2.3
+    if ( !/^[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~ ]*$/.test( name ) ) {
+        name = JSON.stringify( name );
+    }
+    return name ? name + ' <' + email + '>' : email;
 };
 
 const isOwner = function ( participant ) {
@@ -85,6 +87,10 @@ const CalendarEvent = Class({
             record.set( 'accountId', propValue.get( 'accountId' ) );
             return true;
         },
+        // By default, to-one attributes are marked volatile in case the
+        // referenced record is garbage collected. We don't garbage collect
+        // calendars so we can safely cache the attribute value.
+        isVolatile: false,
     }),
 
     // --- Metadata
@@ -369,7 +375,7 @@ const CalendarEvent = Class({
         return dates;
     }.property( 'recurrenceOverrides' ),
 
-    _getOccurrenceForRecurrenceId: function ( id ) {
+    getOccurrenceForRecurrenceId: function ( id ) {
         var cache = this._ocache || ( this._ocache = {} );
         return cache[ id ] || ( cache[ id ] =
             new JMAP.CalendarEventOccurrence( this, id )
@@ -384,7 +390,8 @@ const CalendarEvent = Class({
         var eventTimeZone = this.get( 'timeZone' );
         var recurrenceRule = this.get( 'recurrenceRule' );
         var recurrenceOverrides = this.get( 'recurrenceOverrides' );
-        var duration, earliestStart;
+        var duration = this.get( 'duration' ).valueOf();
+        var earliestStart;
         var occurrences, occurrencesSet, id, occurrence, date;
         var occurrenceIds, recurrences;
 
@@ -400,7 +407,6 @@ const CalendarEvent = Class({
         // To prevent pathological cases, we limit duration to
         // the frequency of the recurrence.
         if ( recurrenceRule ) {
-            duration = this.get( 'duration' ).valueOf();
             switch ( recurrenceRule.frequency ) {
             case YEARLY:
                 duration = Math.min( duration, 366 * 24 * 60 * 60 * 1000 );
@@ -415,15 +421,15 @@ const CalendarEvent = Class({
                 duration = Math.min( duration,       24 * 60 * 60 * 1000 );
                 break;
             }
-            earliestStart = new Date( start - duration + 1000 );
         }
+        earliestStart = new Date( start - duration + 1000 );
 
         // Precompute count, as it's expensive to do each time.
         if ( recurrenceRule && recurrenceRule.count ) {
             occurrences = this.get( 'allStartDates' );
             recurrences = occurrences.length ?
                 occurrences.map( function ( date ) {
-                    return this._getOccurrenceForRecurrenceId( date.toJSON() );
+                    return this.getOccurrenceForRecurrenceId( date.toJSON() );
                 }, this ) :
                 null;
         } else {
@@ -469,7 +475,7 @@ const CalendarEvent = Class({
             }
             // Get event occurrence objects
             recurrences = occurrenceIds.length ?
-                occurrenceIds.map( this._getOccurrenceForRecurrenceId, this ) :
+                occurrenceIds.map( this.getOccurrenceForRecurrenceId, this ) :
                 null;
         }
 
@@ -699,7 +705,7 @@ const normaliseRecurrenceRule = function ( recurrenceRuleJSON ) {
 calendar.replaceEvents = {};
 calendar.handle( CalendarEvent, {
 
-    precedence: 2,
+    precedence: 3,
 
     fetch: 'CalendarEvent',
     refresh: 'CalendarEvent',

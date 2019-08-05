@@ -52,10 +52,7 @@ const MessageSubmission = Class({
         noSync: true,
     }),
 
-    undoStatus: attr( String, {
-        noSync: true,
-        defaultValue: 'pending',
-    }),
+    undoStatus: attr( String ),
 
     deliveryStatus: attr( Object, {
         noSync: true,
@@ -132,17 +129,8 @@ mail.handle( MessageSubmission, {
         var onSuccessDestroyEmail = [];
         var create = args.create;
         var update = args.update;
-        var id, submission;
-
         var accountId = change.accountId;
-        var drafts = mail.getMailboxForRole( accountId, 'drafts' );
-        var sent = mail.getMailboxForRole( accountId, 'sent' );
-        var updateMessage = {};
-        if ( drafts && sent ) {
-            updateMessage[ 'mailboxIds/' + sent.get( 'id' ) ] = null;
-            updateMessage[ 'mailboxIds/' + drafts.get( 'id' ) ] = true;
-        }
-        updateMessage[ 'keywords/$draft' ] = true;
+        var id, submission;
 
         // On create move from drafts, remove $draft keyword
         for ( id in create ) {
@@ -160,10 +148,14 @@ mail.handle( MessageSubmission, {
         // On unsend, move back to drafts, set $draft keyword.
         for ( id in update ) {
             submission = update[ id ];
-            if ( submission.undoStatus === 'canceled' ) {
+            if ( submission.onSuccess === null ) {
+                args.onSuccessDestroyEmail = onSuccessDestroyEmail;
+                onSuccessDestroyEmail.push( id );
+            } else if ( submission.onSuccess ) {
                 args.onSuccessUpdateEmail = onSuccessUpdateEmail;
-                onSuccessUpdateEmail[ submission.id ] = updateMessage;
+                onSuccessUpdateEmail[ id ] = submission.onSuccess;
             }
+            delete submission.onSuccess;
         }
 
         this.callMethod( 'EmailSubmission/set', args );

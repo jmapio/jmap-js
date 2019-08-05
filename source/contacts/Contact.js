@@ -25,9 +25,7 @@ const Contact = Class({
 
     Extends: Record,
 
-    isFlagged: attr( Boolean, {
-        defaultValue: false,
-    }),
+    uid: attr( String ),
 
     avatar: attr( Object, {
         defaultValue: null,
@@ -146,9 +144,11 @@ const Contact = Class({
     }.property( 'firstName', 'lastName', 'company' ),
 
     emailName: function () {
-        var name = this.get( 'name' ).replace( /["\\]/g, '' );
-        if ( /[,;<>@()]/.test( name ) ) {
-            name = '"' + name + '"';
+        var name = this.get( 'name' );
+        // Need to quote unless only using atext characters
+        // https://tools.ietf.org/html/rfc5322#section-3.2.3
+        if ( !/^[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~ ]*$/.test( name ) ) {
+            name = JSON.stringify( name );
         }
         return name;
     }.property( 'name' ),
