@@ -239,7 +239,7 @@ const CalendarEventOccurrence = Class({
 
     // ---
 
-    isAllDay: proxyAttribute,
+    isAllDay: proxyOverrideAttibute( Boolean, 'isAllDay' ),
 
     start: proxyOverrideAttibute( Date, 'start' ),
     duration: proxyOverrideAttibute( Duration, 'duration' ),

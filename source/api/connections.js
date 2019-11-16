@@ -13,7 +13,6 @@
 const IOQueue = O.IOQueue;
 const AggregateSource = O.AggregateSource;
 const Store = O.Store;
-const NestedStore = O.NestedStore;
 
 const Connection = JMAP.Connection;
 const auth = JMAP.auth;
@@ -69,7 +68,7 @@ const store = new Store({
             this.addAccount( accountId, {
                 replaceAccountId: accountId === primaryMailAccountId ?
                     'PLACEHOLDER MAIL ACCOUNT ID' : undefined,
-                hasDataFor: account.hasDataFor,
+                accountCapabilities: account.accountCapabilities,
             });
         }
     },

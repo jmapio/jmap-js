@@ -65,24 +65,34 @@ const vips = new Obj({
         var group = this.getGroup( store, false );
         var newStoreKeys = group ? group.get( 'contactIndex' ) : {};
         var oldStoreKeys = this._vipSKs || {};
-        var isChanged = false;
+        var changed = [];
         var storeKey;
         for ( storeKey in oldStoreKeys ) {
             if ( !( storeKey in newStoreKeys ) ) {
-                isChanged = true;
-                store.getRecordFromStoreKey( storeKey )
-                    .computedPropertyDidChange( 'isVIP' );
+                changed.push( storeKey );
             }
         }
         for ( storeKey in newStoreKeys ) {
             if ( !( storeKey in oldStoreKeys ) ) {
-                isChanged = true;
-                store.getRecordFromStoreKey( storeKey )
-                    .computedPropertyDidChange( 'isVIP' );
+                changed.push( storeKey );
             }
         }
         this._vipSKs = newStoreKeys;
-        if ( isChanged ) {
+        if ( changed.length ) {
+            changed.forEach( storeKey => {
+                // The group may contain non-existent contacts if the contact
+                // is shared and deleted by another user. This is actually a
+                // feature as if it's undeleted (e.g. the other user made a
+                // mistake), all of the other users get it back in their VIPs
+                // and don't lose data. However, we shouldn't materialise or
+                // fetch it – if it's not in memory we know it's not on the
+                // server right now.
+                if ( store.getStatus( storeKey ) & READY ) {
+                    store.getRecordFromStoreKey( storeKey )
+                        .computedPropertyDidChange( 'isVIP' );
+
+                }
+            });
             this.fire( 'change' );
         }
     },

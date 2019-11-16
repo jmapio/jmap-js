@@ -42,18 +42,6 @@ const auth = new Obj({
                 'i;ascii-casemap',
             ],
         },
-        'urn:ietf:params:jmap:mail': {
-            maxMailboxesPerEmail: 1024,
-            maxMailboxDepth: null,
-            maxSizeMailboxName: 100,
-            maxSizeAttachmentsPerEmail: 50000000,
-            emailQuerySortOptions: [ 'receivedAt' ],
-            mayCreateTopLevelMailbox: true,
-        },
-        'urn:ietf:params:jmap:submission': {
-            maxDelayedSend: 0,
-            submissionExtensions: [],
-        },
     },
     state: '',
 
@@ -75,7 +63,7 @@ const auth = new Obj({
         var id;
         for ( id in accounts ) {
             if ( id !== primaryAccountId &&
-                    accounts[ id ].hasDataFor.contains( dataGroup ) ) {
+                    accounts[ id ].accountCapabilities[ dataGroup ] ) {
                 return id;
             }
         }

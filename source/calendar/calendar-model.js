@@ -29,7 +29,7 @@ const CALENDARS_DATA = auth.CALENDARS_DATA;
 
 // ---
 
-const TIMED_OR_ALL_DAY = 0
+const TIMED_OR_ALL_DAY = 0;
 const ONLY_ALL_DAY = 1;
 const ONLY_TIMED = -1;
 
@@ -322,10 +322,12 @@ mixin( calendar, {
 
         futureRelatedTo = {};
         futureRelatedTo[ uidOfFirst ] = {
+            '@type': 'Relation',
             relation: { first: true },
         };
         pastRelatedTo = pastRelatedTo ? clone( pastRelatedTo ) : {};
         pastRelatedTo[ toEditEvent.get( 'uid' ) ] = {
+            '@type': 'Relation',
             relation: { next: true },
         };
         toEditEvent.set( 'relatedTo', futureRelatedTo );
@@ -445,10 +447,9 @@ mixin( calendar, {
 
     fetchEventsInRange: function ( after, before, callback ) {
         var accounts = auth.get( 'accounts' );
-        var accountId, hasDataFor;
+        var accountId;
         for ( accountId in accounts ) {
-            hasDataFor = accounts[ accountId ].hasDataFor;
-            if ( hasDataFor.contains( CALENDARS_DATA ) ) {
+            if ( accounts[ accountId ].accountCapabilities[ CALENDARS_DATA ] ) {
                 this.fetchEventsInRangeForAccount( accountId, after, before );
             }
         }

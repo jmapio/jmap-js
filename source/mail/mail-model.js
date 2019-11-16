@@ -11,6 +11,7 @@
 ( function ( JMAP ) {
 
 const clone = O.clone;
+const isEqual = O.isEqual;
 const READY = O.Status.READY;
 
 const auth = JMAP.auth;
@@ -21,6 +22,7 @@ const Thread = JMAP.Thread;
 const Message = JMAP.Message;
 const MessageList = JMAP.MessageList;
 const MessageSubmission = JMAP.MessageSubmission;
+const SnoozeDetails = JMAP.SnoozeDetails;
 
 // --- Preemptive mailbox count updates ---
 
@@ -79,7 +81,7 @@ const updateMailboxCounts = function ( mailboxDeltas ) {
 
 // --- Preemptive query updates ---
 
-const isSortedOnKeyword = function ( sort, keyword ) {
+const isSortedOnKeyword = function ( keyword, sort ) {
     for ( var i = 0, l = sort.length; i < l; i += 1 ) {
         if ( sort[i].keyword === keyword ) {
             return true;
@@ -88,13 +90,7 @@ const isSortedOnKeyword = function ( sort, keyword ) {
     return false;
 };
 
-const isSortedOnUnread = function ( sort ) {
-    return isSortedOnKeyword( sort, '$seen' );
-};
-
-const isSortedOnFlagged = function ( sort ) {
-    return isSortedOnKeyword( sort, '$flagged' );
-};
+const isSortedOnUnread = isSortedOnKeyword.bind( null, '$seen' );
 
 const filterHasKeyword = function ( filter, keyword ) {
     return (
@@ -113,11 +109,13 @@ const isFilteredOnUnread = function ( filter ) {
     return filterHasKeyword( filter, '$seen' );
 };
 
-const isFilteredOnFlagged = function ( filter ) {
+const isFilteredOnKeyword = function ( keyword, filter ) {
     if ( filter.operator ) {
-        return filter.conditions.some( isFilteredOnFlagged );
+        return filter.conditions.some(
+            isFilteredOnKeyword.bind( null, keyword )
+        );
     }
-    return filterHasKeyword( filter, '$flagged' );
+    return filterHasKeyword( filter, keyword );
 };
 
 const isFilteredOnMailboxes = function ( filter ) {
@@ -149,6 +147,11 @@ const returnFalse = function () {
 
 // ---
 
+const getInboxId = function ( accountId ) {
+    const inbox = getMailboxForRole( accountId, 'inbox' );
+    return inbox ? inbox.get( 'id' ) : '';
+};
+
 const reOrFwd = /^(?:(?:re|fwd):\s*)+/;
 const comparators = {
     id: function ( a, b ) {
@@ -159,6 +162,32 @@ const comparators = {
     },
     receivedAt: function ( a, b ) {
         return a.get( 'receivedAt' ) - b.get( 'receivedAt' );
+    },
+    snoozedUntil: function ( a, b, field ) {
+        var aSnoozed = a.get( 'snoozed' );
+        var bSnoozed = b.get( 'snoozed' );
+        var mailboxId = field.mailboxId;
+        return (
+            aSnoozed && ( !mailboxId || (
+                a.isIn( 'snoozed' ) ||
+                mailboxId === (
+                    aSnoozed.moveToMailboxId ||
+                    getInboxId( a.get( 'accountId' ) )
+                )
+            )) ?
+                aSnoozed.until :
+                a.get( 'receivedAt' )
+        ) - (
+            bSnoozed && ( !mailboxId || (
+                b.isIn( 'snoozed' ) ||
+                mailboxId === (
+                    bSnoozed.moveToMailboxId ||
+                    getInboxId( b.get( 'accountId' ) )
+                )
+            )) ?
+                bSnoozed.until :
+                b.get( 'receivedAt' )
+        );
     },
     size: function ( a, b ) {
         return a.get( 'size' ) - b.get( 'size' );
@@ -251,16 +280,19 @@ const compareToMessage = function ( fields, aData, bData ) {
 const calculatePreemptiveAdd = function ( query, addedMessages, replaced ) {
     var storeKeys = query.getStoreKeys();
     var sort = query.get( 'sort' );
+    var collapseThreads = query.get( 'collapseThreads' );
     var comparator = compareToStoreKey.bind( null, sort );
-    var threadSKToIndex = {};
+    var messageSKToIndex = {};
     var indexDelta = 0;
-    var added, i, l, messageSK, threadSK, seenThreadSk;
+    var added, i, l, messageSK, threadSK, seenThreadSk, threadSKToIndex;
 
     added = addedMessages.reduce( function ( added, message ) {
         added.push({
             message: message,
             messageSK: message.get( 'storeKey' ),
-            threadSK: message.getFromPath( 'thread.storeKey' ),
+            threadSK: collapseThreads ?
+                message.getFromPath( 'thread.storeKey' ) :
+                null,
             index: storeKeys.binarySearch( message, comparator ),
         });
         return added;
@@ -271,7 +303,7 @@ const calculatePreemptiveAdd = function ( query, addedMessages, replaced ) {
         return added;
     }
 
-    if ( query.get( 'collapseThreads' ) ) {
+    if ( collapseThreads ) {
         seenThreadSk = {};
         added = added.filter( function ( item ) {
             var threadSK = item.threadSK;
@@ -281,23 +313,28 @@ const calculatePreemptiveAdd = function ( query, addedMessages, replaced ) {
             seenThreadSk[ threadSK ] = true;
             return true;
         });
-        l = Math.min( added.last().index, storeKeys.length );
-        for ( i = 0; i < l; i += 1 ) {
-            messageSK = storeKeys[i];
-            if ( messageSK && ( store.getStatus( messageSK ) & READY ) ) {
-                threadSK = store.getRecordFromStoreKey( messageSK )
-                                .getData()
-                                .threadId;
+        threadSKToIndex = {};
+    }
+    l = storeKeys.length;
+    for ( i = 0; i < l; i += 1 ) {
+        messageSK = storeKeys[i];
+        if ( messageSK ) {
+            if ( collapseThreads && ( store.getStatus( messageSK ) & READY ) ) {
+                threadSK = store.getData( messageSK ).threadId;
                 threadSKToIndex[ threadSK ] = i;
             }
+            messageSKToIndex[ messageSK ] = i;
         }
     }
 
     return added.reduce( function ( result, item ) {
-        var threadIndex = item.threadSK && threadSKToIndex[ item.threadSK ];
-        if ( threadIndex !== undefined ) {
-            if ( threadIndex >= item.index ) {
-                replaced.push( storeKeys[ threadIndex ] );
+        var currentExemplarIndex = messageSKToIndex[ item.messageSK ];
+        if ( item.threadSK && currentExemplarIndex === undefined ) {
+            currentExemplarIndex = threadSKToIndex[ item.threadSK ];
+        }
+        if ( currentExemplarIndex !== undefined ) {
+            if ( currentExemplarIndex >= item.index ) {
+                replaced.push( storeKeys[ currentExemplarIndex ] );
             } else {
                 return result;
             }
@@ -353,7 +390,11 @@ const updateQueries = function ( filterTest, sortTest, deltas ) {
 
 const identity = function ( v ) { return v; };
 
-const addMoveInverse = function ( inverse, undoManager, willAdd, willRemove, messageSK ) {
+const isSnoozedMailbox = function ( mailbox ) {
+    return !!mailbox && mailbox.get( 'role' ) === 'snoozed';
+};
+
+const addMoveInverse = function ( inverse, undoManager, willAdd, willRemove, messageSK, wasSnoozed ) {
     var l = willRemove ? willRemove.length : 1;
     var i, addMailbox, removeMailbox, key, data;
     for ( i = 0; i < l; i += 1 ) {
@@ -366,14 +407,43 @@ const addMoveInverse = function ( inverse, undoManager, willAdd, willRemove, mes
             data = {
                 method: 'move',
                 messageSKs: [],
-                args: [ null, removeMailbox, addMailbox, true ],
+                args: [ null, removeMailbox, addMailbox, true, {} ],
             };
             inverse[ key ] = data;
             undoManager.pushUndoData( data );
         }
         data.messageSKs.push( messageSK );
+        if ( wasSnoozed ) {
+            data.args[4][ messageSK ] = wasSnoozed;
+        }
         willAdd = null;
     }
+};
+
+// Sets snooze details and returns old details if set and different to new.
+// snooze can be a SnoozeDetails object or a map of store key -> SnoozeDetails.
+const setSnoozed = function ( message, newSnoozed ) {
+    var oldSnoozed = message.get( 'snoozed' );
+    if ( !isEqual( oldSnoozed, newSnoozed ) ) {
+        message.set( 'snoozed', newSnoozed );
+        return oldSnoozed;
+    }
+    return null;
+};
+
+const isSnoozeRemoved = function ( willRemove, snoozed ) {
+    if ( !snoozed || !willRemove ) {
+        return false;
+    }
+    var moveToMailboxId = snoozed.moveToMailboxId;
+    return willRemove.some( moveToMailboxId ?
+        ( mailbox => (
+            mailbox.get( 'role' ) === 'snoozed' ||
+            mailbox.get( 'id' ) === moveToMailboxId ) ) :
+        ( mailbox => (
+            mailbox.get( 'role' ) === 'snoozed' ||
+            mailbox.get( 'role' ) === 'inbox' ) )
+    );
 };
 
 // ---
@@ -750,27 +820,28 @@ Object.assign( connection, {
         return this;
     },
 
-    setFlagged: function ( messages, isFlagged, allowUndo ) {
+    setKeyword: function ( messages, keyword, value, allowUndo ) {
         var inverseMessageSKs = allowUndo ? [] : null;
         var inverse = allowUndo ? {
-                method: 'setFlagged',
+                method: 'setKeyword',
                 messageSKs: inverseMessageSKs,
                 args: [
                     null,
-                    !isFlagged,
+                    keyword,
+                    !value,
                     true
                 ]
             } : null;
 
         messages.forEach( function ( message ) {
             // Check we have something to do
-            if ( message.get( 'isFlagged' ) === isFlagged ||
+            if ( !!message.get( 'keywords' )[ keyword ] === value ||
                     !message.hasPermission( 'maySetKeywords' ) ) {
                 return;
             }
 
             // Update the message
-            message.set( 'isFlagged', isFlagged );
+            message.setKeyword( keyword, value );
 
             // Add inverse for undo
             if ( allowUndo ) {
@@ -779,7 +850,11 @@ Object.assign( connection, {
         });
 
         // Update message list queries, or mark in need of refresh
-        updateQueries( isFilteredOnFlagged, isSortedOnFlagged, null );
+        updateQueries(
+            isFilteredOnKeyword.bind( null, keyword ),
+            isSortedOnKeyword.bind( null, keyword ),
+            null
+        );
 
         if ( allowUndo && inverseMessageSKs.length ) {
             this.undoManager.pushUndoData( inverse );
@@ -788,16 +863,15 @@ Object.assign( connection, {
         return this;
     },
 
-    move: function ( messages, addMailbox, removeMailbox, allowUndo ) {
+    move: function ( messages, addMailbox, removeMailbox, allowUndo, snoozed ) {
         var mailboxDeltas = {};
         var inverse = allowUndo ? {} : null;
         var removeAll = removeMailbox === 'ALL';
         var undoManager = this.undoManager;
         var addMailboxOnlyIfNone = false;
+        var isAddingToSnoozed = isSnoozedMailbox( addMailbox );
         var toCopy = {};
-        // #if FASTMAIL
-        var now = new Date().toJSON() + 'Z';
-        // #end
+        var now = FASTMAIL && ( new Date().toJSON() + 'Z' );
         var accountId, fromAccountId, mailboxIds;
 
         if ( !addMailbox ) {
@@ -831,6 +905,11 @@ Object.assign( connection, {
             return this;
         }
 
+        // Can't move to snoozed mailbox without snooze details
+        if ( isAddingToSnoozed && !snoozed ) {
+            return this;
+        }
+
         messages.forEach( function ( message ) {
             var messageSK = message.get( 'storeKey' );
             var mailboxes = message.get( 'mailboxes' );
@@ -848,10 +927,15 @@ Object.assign( connection, {
             var isThreadUnreadInTrash = false;
             var mailboxCounts = null;
 
+            var wasSnoozed = null;
+            var newSnoozed = snoozed && !( snoozed instanceof SnoozeDetails ) ?
+                snoozed[ message.get( 'storeKey' ) ] || null :
+                snoozed || null;
+
             var isUnread, thread;
             var deltaThreadUnreadInNotTrash, deltaThreadUnreadInTrash;
             var decrementMailboxCount, incrementMailboxCount;
-            var delta, mailboxSK, mailbox;
+            var delta, mailboxSK, mailbox, removedDates;
 
             // Calculate the changes required to the message's mailboxes
             if ( removeAll ) {
@@ -875,6 +959,20 @@ Object.assign( connection, {
 
             // Check we have something to do
             if ( !willRemove && ( !willAdd || addMailboxOnlyIfNone ) ) {
+                // We may be updating snooze but not moving
+                if ( isAddingToSnoozed && newSnoozed ) {
+                    wasSnoozed = setSnoozed( message, newSnoozed );
+                    if ( allowUndo && wasSnoozed ) {
+                        addMoveInverse(
+                            inverse,
+                            undoManager,
+                            addMailbox,
+                            null,
+                            messageSK,
+                            wasSnoozed
+                        );
+                    }
+                }
                 return;
             }
 
@@ -925,20 +1023,28 @@ Object.assign( connection, {
                 willRemove ? willRemove.length : 0,
                 willAdd
             );
-            // #if FASTMAIL
             if ( willRemove ) {
-                message.set( 'removedDates',
-                    willRemove.reduce( function ( removedDates, mailbox ) {
+                if ( FASTMAIL ) {
+                    removedDates = clone( message.get( 'removedDates' ) );
+                    willRemove.forEach( mailbox => {
                         removedDates[ mailbox.get( 'id' ) ] = now;
-                        return removedDates;
-                    }, clone( message.get( 'removedDates' ) ) )
-                );
+                    });
+                    message.set( 'removedDates', removedDates );
+                }
             }
-            // #end
 
             if ( alreadyHasMailbox ) {
                 willAdd = null;
                 willRemove.erase( addMailbox );
+            }
+
+            // Set snoozed if given; clear snooze if removing from
+            // mailbox target of snooze and not still in Snoozed mailbox.
+            if ( newSnoozed ) {
+                wasSnoozed = setSnoozed( message, newSnoozed );
+            } else if ( !message.isIn( 'snoozed' ) &&
+                    isSnoozeRemoved( willRemove, message.get( 'snoozed' ) ) ) {
+                wasSnoozed = setSnoozed( message, null );
             }
 
             // Add inverse for undo
@@ -946,7 +1052,8 @@ Object.assign( connection, {
                 addMoveInverse( inverse, undoManager,
                     // Don't use messageSK, because we need the new store key
                     // if we moved it to a new account
-                    willAdd, willRemove, message.get( 'storeKey' ) );
+                    willAdd, willRemove, message.get( 'storeKey' ),
+                    wasSnoozed );
             }
 
             // Calculate any changes to the mailbox message counts

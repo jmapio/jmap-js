@@ -3,33 +3,36 @@
 // Module: CalendarModel                                                      \\
 // -------------------------------------------------------------------------- \\
 
-/*global O, JMAP */
+/*global JMAP */
 
 'use strict';
 
 ( function ( JMAP ) {
 
-const Class = O.Class;
-
 // ---
 
-const durationFormat = /^P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/;
+const durationFormat = /^([+-]?)P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)(?:\.\d+)?S)?)?$/;
 
 const A_DAY = 24 * 60 * 60 * 1000;
 
-const Duration = Class({
-    init: function ( durationInMS ) {
+class Duration {
+    constructor ( durationInMS ) {
         this._durationInMS = durationInMS;
-    },
+    }
 
-    valueOf: function () {
+    valueOf () {
         return this._durationInMS;
-    },
+    }
 
-    toJSON: function () {
+    toJSON () {
         var output = 'P';
         var durationInMS = this._durationInMS;
         var quantity;
+
+        if ( durationInMS < 0 ) {
+            durationInMS = -durationInMS;
+            output = '-P';
+        }
 
         // According to RFC3339 we can't mix weeks with other durations.
         // We could mix days, but presume that anything that's not an exact
@@ -74,24 +77,27 @@ const Duration = Class({
 
         return output;
     }
-});
 
-Duration.isEqual = function ( a, b ) {
-    return a._durationInMS === b._durationInMS;
-};
-
-Duration.fromJSON = function ( value ) {
-    var results = value ? durationFormat.exec( value ) : null;
-    var durationInMS = 0;
-    if ( results ) {
-        durationInMS += ( +results[1] || 0 ) * 7 * 24 * 60 * 60 * 1000;
-        durationInMS += ( +results[2] || 0 )     * 24 * 60 * 60 * 1000;
-        durationInMS += ( +results[3] || 0 )          * 60 * 60 * 1000;
-        durationInMS += ( +results[4] || 0 )               * 60 * 1000;
-        durationInMS += ( +results[5] || 0 )                    * 1000;
+    static isEqual ( a, b ) {
+        return a._durationInMS === b._durationInMS;
     }
-    return new Duration( durationInMS );
-};
+
+    static fromJSON ( value ) {
+        var results = value ? durationFormat.exec( value ) : null;
+        var durationInMS = 0;
+        if ( results ) {
+            durationInMS += ( +results[2] || 0 ) * 7 * 24 * 60 * 60 * 1000;
+            durationInMS += ( +results[3] || 0 )     * 24 * 60 * 60 * 1000;
+            durationInMS += ( +results[4] || 0 )          * 60 * 60 * 1000;
+            durationInMS += ( +results[5] || 0 )               * 60 * 1000;
+            durationInMS += ( +results[6] || 0 )                    * 1000;
+            if ( results[1] === '-' ) {
+                durationInMS = -durationInMS;
+            }
+        }
+        return new Duration( durationInMS );
+    }
+}
 
 Duration.ZERO = new Duration( 0 );
 Duration.AN_HOUR = new Duration( 60 * 60 * 1000 );

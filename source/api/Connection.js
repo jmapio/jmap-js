@@ -4,7 +4,7 @@
 // Requires: Auth.js                                                          \\
 // -------------------------------------------------------------------------- \\
 
-/*global O, JMAP, JSON, console, alert */
+/*global O, JMAP, console, alert */
 
 'use strict';
 
@@ -56,17 +56,19 @@ const applyPatch = function ( object, path, patch ) {
     }
 };
 
-const makePatches = function ( path, patches, original, current ) {
+const makePatches = function ( path, patches, original, current, mayPatch ) {
     var key;
     var didPatch = false;
     if ( original && current &&
-            typeof current === 'object' && !( current instanceof Array ) ) {
+            typeof current === 'object' && !( current instanceof Array ) &&
+            ( !mayPatch || mayPatch( path, original, current ) ) ) {
         for ( key in current ) {
             didPatch = makePatches(
                 path + '/' + key.replace( /~/g, '~0' ).replace( /\//g, '~1' ),
                 patches,
                 original[ key ],
-                current[ key ]
+                current[ key ],
+                mayPatch
             ) || didPatch;
         }
         for ( key in original ) {
@@ -76,7 +78,8 @@ const makePatches = function ( path, patches, original, current ) {
                         key.replace( /~/g, '~0' ).replace( /\//g, '~1' ),
                     patches,
                     original[ key ],
-                    null
+                    null,
+                    mayPatch
                 ) || didPatch;
             }
         }
@@ -87,7 +90,7 @@ const makePatches = function ( path, patches, original, current ) {
     return didPatch;
 };
 
-const makeUpdate = function ( primaryKey, update, noPatch, isCopy ) {
+const makeUpdate = function ( primaryKey, update, mayPatch, isCopy ) {
     const storeKeys = update.storeKeys;
     const records = update.records;
     const changes = update.changes;
@@ -98,15 +101,18 @@ const makeUpdate = function ( primaryKey, update, noPatch, isCopy ) {
     for ( i = 0, l = records.length; i < l; i +=1 ) {
         record = records[i];
         change = changes[i];
-        previous = noPatch ? null : committed[i];
+        previous = mayPatch ? committed[i] : null;
         patches = {};
 
         for ( key in change ) {
             if ( change[ key ] && key !== 'accountId' ) {
-                if ( noPatch ) {
-                    patches[ key ] = record[ key ];
+                if ( mayPatch ) {
+                    makePatches(
+                        key, patches, previous[ key ], record[ key ],
+                        typeof mayPatch === 'function' ? mayPatch : null,
+                    );
                 } else {
-                    makePatches( key, patches, previous[ key ], record[ key ] );
+                    patches[ key ] = record[ key ];
                 }
             }
         }
@@ -119,14 +125,14 @@ const makeUpdate = function ( primaryKey, update, noPatch, isCopy ) {
     return Object.keys( updates ).length ? updates : undefined;
 };
 
-const makeSetRequest = function ( change, noPatch ) {
+const makeSetRequest = function ( change, mayPatch ) {
     var create = change.create;
     var update = change.update;
     var destroy = change.destroy;
     var toCreate = create.storeKeys.length ?
         Object.zip( create.storeKeys, create.records ) :
         undefined;
-    var toUpdate = makeUpdate( change.primaryKey, update, noPatch, false );
+    var toUpdate = makeUpdate( change.primaryKey, update, mayPatch, false );
     var toDestroy = destroy.ids.length ?
         destroy.ids :
         undefined;
@@ -501,8 +507,8 @@ const Connection = Class({
         return this;
     },
 
-    commitType: function ( typeId, changes ) {
-        var setRequest = makeSetRequest( changes, false );
+    commitType: function ( typeId, changes, mayPatch ) {
+        var setRequest = makeSetRequest( changes, mayPatch );
         var moveFromAccount, fromAccountId, accountId;
         if ( setRequest ) {
             this.callMethod( typeId + '/set', setRequest );
@@ -516,7 +522,7 @@ const Connection = Class({
                     create: makeUpdate(
                         changes.primaryKey,
                         moveFromAccount[ fromAccountId ],
-                        true,
+                        null,
                         true
                     ),
                     onSuccessDestroyOriginal: true,
@@ -1005,7 +1011,7 @@ const Connection = Class({
             handler = this.recordCommitters[ change.typeId ];
             if ( handler ) {
                 if ( typeof handler === 'string' ) {
-                    this.commitType( handler, change );
+                    this.commitType( handler, change, true );
                 } else {
                     handler.call( this, change );
                 }

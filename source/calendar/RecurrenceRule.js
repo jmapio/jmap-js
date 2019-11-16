@@ -10,7 +10,6 @@
 ( function ( JMAP ) {
 
 const toBoolean = O.Transform.toBoolean;
-const Class = O.Class;
 
 // ---
 
@@ -346,9 +345,9 @@ const iterate = function ( fromDate,
 
 // ---
 
-const RecurrenceRule = Class({
+class RecurrenceRule {
 
-    init: function ( json ) {
+    constructor ( json ) {
         this.frequency = frequencyNumbers[ json.frequency ] || DAILY;
         this.interval = json.interval || 1;
 
@@ -375,15 +374,17 @@ const RecurrenceRule = Class({
 
         this.until = json.until ? Date.fromJSON( json.until ) : null;
         // Arbitrary limit of 2^14 – after that ignore the count and treat as
-        // inifinite; we presume we can list all occurrences if there is a
+        // infinite; we presume we can list all occurrences if there is a
         // count without being too expensive. Don't die trying to compute them
         // if someone accidentally or on purpose puts a pathologically large
         // count.
-        this.count = json.count < 16384 && json.count || null;
-    },
+        this.count = json.count <= 16384 && json.count || null;
+    }
 
-    toJSON: function () {
-        var result = {};
+    toJSON () {
+        var result = {
+            '@type': 'RecurrenceRule',
+        };
         var key, value;
         for ( key in this ) {
             if ( key.charAt( 0 ) === '_' || !this.hasOwnProperty( key ) ) {
@@ -432,12 +433,12 @@ const RecurrenceRule = Class({
             result[ key ] = value;
         }
         return result;
-    },
+    }
 
     // start = Date recurrence starts (should be first occurrence)
     // begin = Beginning of time period to return occurrences within
     // end = End of time period to return occurrences within
-    getOccurrences: function ( start, begin, end ) {
+    getOccurrences ( start, begin, end ) {
         var frequency = this.frequency;
         var count = this.count || 0;
         var until = this.until;
@@ -661,13 +662,17 @@ const RecurrenceRule = Class({
         }
 
         return results;
-    },
+    }
 
-    matches: function ( start, date ) {
+    matches ( start, date ) {
         return !!this.getOccurrences( start, date, new Date( +date + 1000 ) )
                      .length;
-    },
-});
+    }
+
+    static fromJSON ( recurrenceRuleJSON ) {
+        return new RecurrenceRule( recurrenceRuleJSON );
+    }
+}
 
 RecurrenceRule.dayToNumber = dayToNumber;
 RecurrenceRule.numberToDay = numberToDay;
@@ -679,10 +684,6 @@ RecurrenceRule.DAILY = DAILY;
 RecurrenceRule.HOURLY = HOURLY;
 RecurrenceRule.MINUTELY = MINUTELY;
 RecurrenceRule.SECONDLY = SECONDLY;
-
-RecurrenceRule.fromJSON = function ( recurrenceRuleJSON ) {
-    return new RecurrenceRule( recurrenceRuleJSON );
-};
 
 // --- Export
 

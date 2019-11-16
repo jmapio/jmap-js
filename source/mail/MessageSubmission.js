@@ -10,15 +10,19 @@
 
 ( function ( JMAP ) {
 
+const clone = O.clone;
+const guid = O.guid;
 const Class = O.Class;
 const Record = O.Record;
 const attr = Record.attr;
+const READY = O.Status.READY;
 
 const mail = JMAP.mail;
 const Identity = JMAP.Identity;
 const Message = JMAP.Message;
 const Thread = JMAP.Thread;
 const Mailbox = JMAP.Mailbox;
+const applyPatch = JMAP.Connection.applyPatch;
 const makeSetRequest = JMAP.Connection.makeSetRequest;
 
 // ---
@@ -217,6 +221,124 @@ mail.handle( MessageSubmission, {
         // 1. Fetch EmailSubmission/changes (inc. fetch records)
         // 2. Check if any of these are sending the same message
         // 3. If not retry. If yes, destroy?
+    },
+
+    // ---
+
+    'Email/set': function ( args, reqName, reqArgs ) {
+        // If we did a set implicitly on successful send, the change is not in
+        // the store, so don't call didCommit. Instead we tell the store the
+        // updates the server has made.
+        var store = this.get( 'store' );
+        var accountId = reqArgs.accountId;
+        if ( reqName === 'EmailSubmission/set' ) {
+            var create = reqArgs.create;
+            var update = reqArgs.update;
+            var changes = Object.keys( create || {} ).reduce(
+                ( changes, creationId ) => {
+                    changes[ '#' + creationId ] = create[ creationId ];
+                    return changes;
+                },
+                update ? clone( update ) : {}
+            );
+            var onSuccessUpdateEmail = reqArgs.onSuccessUpdateEmail;
+            var onSuccessDestroyEmail = reqArgs.onSuccessDestroyEmail;
+            var updates = {};
+            var destroyed = [];
+            var emailId, storeKey, path, id, patch, data;
+            for ( id in changes ) {
+                emailId = changes[ id ].emailId;
+                if ( emailId && emailId.charAt( 0 ) === '#' ) {
+                    storeKey = emailId.slice( 1 );
+                    emailId = store.getIdFromStoreKey( storeKey );
+                } else {
+                    if ( !emailId ) {
+                        emailId = store
+                            .getRecord( accountId, MessageSubmission, id )
+                            .getFromPath( 'message.id' );
+                    }
+                    storeKey = store.getStoreKey( accountId, Message, emailId );
+                }
+                if ( onSuccessUpdateEmail &&
+                        ( patch = onSuccessUpdateEmail[ id ] )) {
+                    // If we've made further changes since this commit, bail
+                    // out. This is just an optimisation, and we'll fetch the
+                    // real changes from the source instead automatically if
+                    // we don't do it.
+                    if ( store.getStatus( storeKey ) !== READY ) {
+                        updates = null;
+                        break;
+                    }
+                    data = store.getData( storeKey );
+                    data = {
+                        keywords: clone( data.keywords ),
+                        mailboxIds: Object.keys( data.mailboxIds ).reduce(
+                            function ( mailboxIds, storeKey ) {
+                                mailboxIds[
+                                    store.getIdFromStoreKey( storeKey )
+                                ] = true;
+                                return mailboxIds;
+                            },
+                            {}
+                        ),
+                    };
+                    for ( path in patch ) {
+                        applyPatch( data, path, patch[ path ] );
+                    }
+                    updates[ emailId ] = data;
+                } else if ( onSuccessDestroyEmail &&
+                        onSuccessDestroyEmail.contains( id ) ) {
+                    destroyed.push( emailId );
+                }
+            }
+            if ( updates ) {
+                store.sourceDidFetchUpdates( accountId,
+                    Message, [], destroyed, args.oldState, args.newState );
+                store.sourceDidFetchPartialRecords( accountId,
+                    Message, updates );
+            }
+            // And we invalidate all MessageList queries, as some may be
+            // invalid and we don't know which ones.
+            this.get( 'store' )
+                .fire( guid( Message ) + ':server:' + accountId );
+            return;
+        } else {
+            var notCreated = args.notCreated;
+            if ( notCreated ) {
+                // If we get an alreadyExists error, just pretend it was
+                // success as long as we don't already have the record loaded.
+                // The only thing that could *potentially* differ is the
+                // keywords/mailboxes. However, in practice, almost certainly
+                // what's happened is that we had a network loss and have
+                // retried the create, and the original request actually
+                // succeeded; we just never got the response.
+                var created = args.created || ( args.created = {} );
+                var existing = [];
+                Object.keys( notCreated ).forEach( storeKey => {
+                    var error = notCreated[ storeKey ];
+                    var existingId = error.existingId;
+                    if ( error.type === 'alreadyExists' &&!(
+                            store.getRecordStatus(
+                                accountId, Message, existingId ) & READY
+                            )) {
+                        delete notCreated[ storeKey ];
+                        created[ storeKey ] = {
+                            id: existingId,
+                        };
+                        existing.push( existingId );
+                    }
+                });
+                // We need to fetch the other server-set properties.
+                if ( existing.length ) {
+                    this.callMethod( 'Email/get', {
+                        accountId: accountId,
+                        ids: existing,
+                        properties: [ 'blobId', 'threadId', 'size' ],
+                    });
+                }
+            }
+        }
+        this.didCommit( Message, args );
     },
 });
 

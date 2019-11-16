@@ -12,7 +12,6 @@
 
 const isEqual = O.isEqual;
 const clone = O.clone;
-const guid = O.guid;
 const i18n = O.i18n;
 const Class = O.Class;
 const Status = O.Status;
@@ -23,7 +22,6 @@ const NEW = Status.NEW;
 const Record = O.Record;
 const attr = Record.attr;
 
-const applyPatch = JMAP.Connection.applyPatch;
 const Mailbox = JMAP.Mailbox;
 const mail = JMAP.mail;
 
@@ -277,16 +275,6 @@ const Message = Class({
 
     // ---
 
-    fullDate: function () {
-        var date = this.get( 'receivedAt' );
-        return i18n.date( date, 'fullDateAndTime' );
-    }.property( 'receivedAt' ),
-
-    relativeDate: function () {
-        var date = this.get( 'receivedAt' );
-        return date.relativeTo( null, true, true );
-    }.property().nocache(),
-
     formattedSize: function () {
         return i18n.fileSize( this.get( 'size' ), 1 );
     }.property( 'size' ),
@@ -455,6 +443,10 @@ Message.bodyProperties = [
     'cid',
     'location',
 ];
+Message.mutableProperties = [
+    'mailboxIds',
+    'keywords',
+];
 Message.Details = MessageDetails;
 Message.Thread = MessageThread;
 Message.BodyValues = MessageBodyValues;
@@ -538,10 +530,7 @@ mail.handle( Message, {
             this.callMethod( 'Email/get', {
                 accountId: accountId,
                 ids: ids,
-                properties: [
-                    'mailboxIds',
-                    'keywords',
-                ]
+                properties: Message.mutableProperties,
             });
         } else {
             this.callMethod( 'Email/changes', {
@@ -573,8 +562,9 @@ mail.handle( Message, {
 
         if ( !message || message.receivedAt ) {
             this.didFetch( Message, args, false );
-        } else if ( message.mailboxIds ) {
-            // keywords/mailboxIds (OBSOLETE message refreshed)
+        } else if ( message.mailboxIds || message.threadId ) {
+            // Mutable props: keywords/mailboxIds (OBSOLETE message refreshed)
+            // Or threadId/blobId/size from fetch after alreadyExists error
             updates = list.reduce( function ( updates, message ) {
                 updates[ message.id ] = message;
                 return updates;
@@ -673,79 +663,7 @@ mail.handle( Message, {
             Message, null, null, store.getTypeState( accountId, Message ), '' );
     },
 
-    'Email/set': function ( args, reqName, reqArgs ) {
-        // If we did a set implicitly on successful send, the change is not in
-        // the store, so don't call didCommit. Instead we tell the store the
-        // updates the server has made.
-        var store = this.get( 'store' );
-        var accountId = reqArgs.accountId;
-        if ( reqName === 'EmailSubmission/set' ) {
-            var create = reqArgs.create;
-            var update = reqArgs.update;
-            var changes = Object.keys( create || {} ).reduce(
-                ( changes, creationId ) => {
-                    changes[ '#' + creationId ] = create[ creationId ];
-                    return changes;
-                },
-                update ? clone( update ) : {}
-            );
-            var onSuccessUpdateEmail = reqArgs.onSuccessUpdateEmail;
-            var onSuccessDestroyEmail = reqArgs.onSuccessDestroyEmail;
-            var updates = {};
-            var destroyed = [];
-            var emailId, storeKey, path, id, patch, data;
-            for ( id in changes ) {
-                emailId = changes[ id ].emailId;
-                if ( emailId.charAt( 0 ) === '#' ) {
-                    storeKey = emailId.slice( 1 );
-                    emailId = store.getIdFromStoreKey( storeKey );
-                } else {
-                    storeKey = store.getStoreKey( accountId, Message, emailId );
-                }
-                if ( onSuccessUpdateEmail &&
-                        ( patch = onSuccessUpdateEmail[ id ] )) {
-                    // If we've made further changes since this commit, bail
-                    // out. This is just an optimisation, and we'll fetch the
-                    // real changes from the source instead automatically if
-                    // we don't do it.
-                    if ( store.getStatus( storeKey ) !== READY ) {
-                        updates = null;
-                        break;
-                    }
-                    data = store.getData( storeKey );
-                    data = {
-                        keywords: clone( data.keywords ),
-                        mailboxIds: Object.keys( data.mailboxIds ).reduce(
-                            function ( mailboxIds, storeKey ) {
-                                mailboxIds[
-                                    store.getIdFromStoreKey( storeKey )
-                                ] = true;
-                                return mailboxIds;
-                            },
-                            {}
-                        ),
-                    };
-                    for ( path in patch ) {
-                        applyPatch( data, path, patch[ path ] );
-                    }
-                    updates[ emailId ] = data;
-                } else if ( onSuccessDestroyEmail &&
-                        onSuccessDestroyEmail.contains( id ) ) {
-                    destroyed.push( emailId );
-                }
-            }
-            if ( updates ) {
-                store.sourceDidFetchUpdates( accountId,
-                    Message, [], destroyed, args.oldState, args.newState );
-                store.sourceDidFetchPartialRecords( accountId,
-                    Message, updates );
-            }
-            // And we invalidate all MessageList queries, as some may be
-            // invalid and we don't know which ones.
-            this.get( 'store' )
-                .fire( guid( Message ) + ':server:' + accountId );
-            return;
-        }
+    'Email/set': function ( args ) {
         this.didCommit( Message, args );
     },
 });

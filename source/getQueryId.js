@@ -4,7 +4,7 @@
 // Requires: namespace.js                                                     \\
 // -------------------------------------------------------------------------- \\
 
-/*global O, JMAP, JSON */
+/*global O, JMAP */
 
 'use strict';
 

@@ -193,7 +193,6 @@ const Thread = Class({
             }, true );
     },
 
-    // Note: API Mail mutates this value; do not cache.
     mailboxCounts: function () {
         var counts = {};
         this.get( 'messages' ).forEach( function ( message ) {
@@ -203,7 +202,7 @@ const Thread = Class({
             });
         });
         return counts;
-    }.property( 'messages' ).nocache(),
+    }.property( 'messages' ),
 
     // ---
 

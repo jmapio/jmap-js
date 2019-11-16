@@ -46,6 +46,25 @@ const isOwner = function ( participant ) {
     return !!participant.roles.owner;
 };
 
+const isValidPatch = function ( object, path ) {
+    var slash, key;
+    while ( true ) {
+        // Invalid patch; path does not exist
+        if ( !object ) {
+            return false;
+        }
+        slash = path.indexOf( '/' );
+        // We have all the parts of the path before the last; valid patch
+        if ( slash === -1 ) {
+            return true;
+        }
+        key = path.slice( 0, slash );
+        path = path.slice( slash + 1 );
+        key = key.replace( /~1/g, '/' ).replace( /~0/g, '~' );
+        object = object[ key ];
+    }
+};
+
 const CalendarEvent = Class({
 
     Extends: Record,
@@ -140,12 +159,17 @@ const CalendarEvent = Class({
 
     locations: attr( Object, {
         defaultValue: null,
+        willSet: function ( propValue, propKey, record ) {
+            record._removeInvalidPatches();
+            return true;
+        },
     }),
 
     location: function ( value ) {
         if ( value !== undefined ) {
             this.set( 'locations', value ? {
                 '1': {
+                    '@type': 'Location',
                     name: value
                 }
             } : null );
@@ -167,7 +191,7 @@ const CalendarEvent = Class({
         if ( timeZone ) {
             for ( id in locations ) {
                 location = locations[ id ];
-                if ( location.rel === 'start' ) {
+                if ( location.relativeTo === 'start' ) {
                     if ( location.timeZone ) {
                         timeZone = TimeZone.fromJSON( location.timeZone );
                     }
@@ -185,7 +209,7 @@ const CalendarEvent = Class({
         if ( timeZone ) {
             for ( id in locations ) {
                 location = locations[ id ];
-                if ( location.rel === 'end' ) {
+                if ( location.relativeTo === 'end' ) {
                     if ( location.timeZone ) {
                         timeZone = TimeZone.fromJSON( location.timeZone );
                     }
@@ -200,6 +224,10 @@ const CalendarEvent = Class({
 
     links: attr( Object, {
         defaultValue: null,
+        willSet: function ( propValue, propKey, record ) {
+            record._removeInvalidPatches();
+            return true;
+        },
     }),
 
     // ---
@@ -214,6 +242,7 @@ const CalendarEvent = Class({
     // --- When
 
     isAllDay: attr( Boolean, {
+        key: 'showWithoutTime',
         defaultValue: false,
     }),
 
@@ -228,12 +257,14 @@ const CalendarEvent = Class({
     }),
 
     duration: attr( Duration, {
-        defaultValue: Duration.ZERO,
+        defaultValue: 0,
     }),
 
     timeZone: attr( TimeZone, {
         defaultValue: null,
     }),
+
+    recurrenceId: attr( String ),
 
     recurrenceRule: attr( RecurrenceRule, {
         defaultValue: null,
@@ -356,6 +387,30 @@ const CalendarEvent = Class({
             this.set( 'recurrenceOverrides', newRecurrenceOverrides );
         }
     },
+
+    _removeInvalidPatches: function () {
+        var recurrenceOverrides = this.get( 'recurrenceOverrides' );
+        var hasChanges = false;
+        var data, recurrenceId, patches, path;
+        if ( recurrenceOverrides ) {
+            data = this.getData();
+            for ( recurrenceId in recurrenceOverrides ) {
+                patches = recurrenceOverrides[ recurrenceId ];
+                for ( path in patches ) {
+                    if ( !isValidPatch( data, path ) ) {
+                        if ( !hasChanges ) {
+                            hasChanges = true;
+                            recurrenceOverrides = clone( recurrenceOverrides );
+                        }
+                        delete recurrenceOverrides[ recurrenceId ][ path ];
+                    }
+                }
+            }
+            if ( hasChanges ) {
+                this.set( 'recurrenceOverrides', recurrenceOverrides );
+            }
+        }
+    }.queue( 'before' ),
 
     removedDates: function () {
         var recurrenceOverrides = this.get( 'recurrenceOverrides' );
@@ -576,6 +631,10 @@ const CalendarEvent = Class({
 
     participants: attr( Object, {
         defaultValue: null,
+        willSet: function ( propValue, propKey, record ) {
+            record._removeInvalidPatches();
+            return true;
+        },
     }),
 
     participantNameAndEmails: function () {
@@ -643,6 +702,10 @@ const CalendarEvent = Class({
 
     alerts: attr( Object, {
         defaultValue: null,
+        willSet: function ( propValue, propKey, record ) {
+            record._removeInvalidPatches();
+            return true;
+        },
     }),
 });
 CalendarEvent.__guid__ = 'CalendarEvent';
@@ -702,6 +765,14 @@ const normaliseRecurrenceRule = function ( recurrenceRuleJSON ) {
     }
 };
 
+const mayPatchKey = function ( path, original, current ) {
+    if ( path.startsWith( 'recurrenceOverrides/' ) &&
+            ( original.excluded || current.excluded ) ) {
+        return false;
+    }
+    return true;
+};
+
 calendar.replaceEvents = {};
 calendar.handle( CalendarEvent, {
 
@@ -709,7 +780,10 @@ calendar.handle( CalendarEvent, {
 
     fetch: 'CalendarEvent',
     refresh: 'CalendarEvent',
-    commit: 'CalendarEvent',
+
+    commit: function ( change ) {
+        this.commitType( 'CalendarEvent', change, mayPatchKey );
+    },
 
     // ---
 

@@ -105,6 +105,11 @@ const Mailbox = Class({
         noSync: true
     }),
 
+    mayAddItems: function () {
+        return this.get( 'myRights' ).mayAddItems &&
+            this.get( 'role' ) !== 'snoozed';
+    }.property( 'role', 'myRights' ),
+
     // ---
 
     totalEmails: attr( Number, {
@@ -219,6 +224,12 @@ Mailbox.dataGroup = 'urn:ietf:params:jmap:mail';
 
 Mailbox.prototype.parent.Type = Mailbox;
 
+Mailbox.noChildRole = {
+    snoozed: true,
+    junk: true,
+    trash: true,
+};
+
 // ---
 
 connection.ignoreCountsForMailboxIds = null;
@@ -283,8 +294,8 @@ connection.handle( Mailbox, {
     },
 
     commit: function ( change ) {
-        var args = makeSetRequest( change, true );
-        args.onDestroyRemoveMessages = true;
+        var args = makeSetRequest( change, false );
+        args.onDestroyRemoveEmails = true;
         this.callMethod( 'Mailbox/set', args );
     },
 
