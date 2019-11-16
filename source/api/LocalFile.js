@@ -89,7 +89,7 @@ const LocalFile = Class({
                     url: auth.get( 'uploadUrl' ).replace(
                         '{accountId}', encodeURIComponent( this.accountId ) ),
                     headers: {
-                        'Authorization': 'Bearer ' + auth.get( 'accessToken' ),
+                        'Authorization': auth.get( 'accessToken' ),
                     },
                     withCredentials: true,
                     responseType: 'json',

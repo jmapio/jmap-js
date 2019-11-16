@@ -562,7 +562,7 @@ const Connection = Class({
         return {
             'Content-type': 'application/json',
             'Accept': 'application/json',
-            'Authorization': 'Bearer ' + auth.get( 'accessToken' ),
+            'Authorization': auth.get( 'accessToken' ),
         };
     }.property().nocache(),
 

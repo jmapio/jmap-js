@@ -115,6 +115,13 @@ const auth = new Obj({
         }
         this._isFetchingSession = true;
 
+        if ( !authenticationUrl ) {
+            authenticationUrl = this.get( 'authenticationUrl' );
+        }
+        if ( !accessToken ) {
+            accessToken = this.get( 'accessToken' );
+        }
+
         new HttpRequest({
             method: 'GET',
             url: authenticationUrl,
@@ -126,7 +133,8 @@ const auth = new Obj({
             responseType: 'json',
 
             onSuccess: function ( event ) {
-                auth.set( 'accessToken', accessToken );
+                auth.set( 'authenticationUrl', authenticationUrl )
+                    .set( 'accessToken', accessToken );
                 auth.didAuthenticate( event.data );
             }.on( 'io:success' ),
         }).send();
