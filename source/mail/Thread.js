@@ -88,7 +88,7 @@ const MessageArray = Class({
 
     Mixin: [ ObservableRange, Enumerable ],
 
-    init ( store, storeKeys ) {
+    init: function ( store, storeKeys ) {
         this._store = store;
         this._storeKeys = storeKeys;
 

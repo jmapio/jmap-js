@@ -134,8 +134,8 @@ const auth = new Obj({
 
             onSuccess: function ( event ) {
                 auth.set( 'authenticationUrl', authenticationUrl )
-                    .set( 'accessToken', accessToken );
-                auth.didAuthenticate( event.data );
+                    .set( 'accessToken', accessToken )
+                    .didAuthenticate( event.data );
             }.on( 'io:success' ),
         }).send();
 
