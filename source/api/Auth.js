@@ -17,6 +17,7 @@ const RunLoop = O.RunLoop;
 // ---
 
 const MAIL_DATA = 'urn:ietf:params:jmap:mail';
+const SUBMISSION_DATA = 'urn:ietf:params:jmap:submission';
 const CONTACTS_DATA = 'urn:ietf:params:jmap:contacts';
 const CALENDARS_DATA = 'urn:ietf:params:jmap:calendars';
 
@@ -51,6 +52,7 @@ const auth = new Obj({
     eventSourceUrl: '',
 
     MAIL_DATA: MAIL_DATA,
+    SUBMISSION_DATA: SUBMISSION_DATA,
     CONTACTS_DATA: CONTACTS_DATA,
     CALENDARS_DATA: CALENDARS_DATA,
 

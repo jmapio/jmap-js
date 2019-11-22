@@ -72,7 +72,7 @@ const MessageSubmission = Class({
     onSuccess: attr( Object ),
 });
 MessageSubmission.__guid__ = 'EmailSubmission';
-MessageSubmission.dataGroup = 'urn:ietf:params:jmap:mail';
+MessageSubmission.dataGroup = 'urn:ietf:params:jmap:submission';
 
 MessageSubmission.makeEnvelope = function ( message, extraRecipients ) {
     var sender = message.get( 'sender' );

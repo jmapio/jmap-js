@@ -63,7 +63,7 @@ const Identity = Class({
     }.property( 'name', 'email' ),
 });
 Identity.__guid__ = 'Identity';
-Identity.dataGroup = 'urn:ietf:params:jmap:mail';
+Identity.dataGroup = 'urn:ietf:params:jmap:submission';
 
 JMAP.mail.handle( Identity, {
 
