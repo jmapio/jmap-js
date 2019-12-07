@@ -55,7 +55,7 @@ In either case, the following methods will be useful:
 * `get( 'status' )` – returns the status of the query. Mostly you're just
    checking if it is O.Status.READY yet.
 * `addObserverForRange( range: { start: Number, end: Number}, object: Object, method: String )` - the given `method` will be called on the given `object` whenever there is a change in the set of records in the range between start and end. If start is omitted it is taken to be 0 (the first element in the enumerable). If end is ommitted it is taken to be the length of the list. start is inclusive and end is exclusive, e.g. {start: 1, end: 2} will only fire if the record at index 1 changes. You can modify the start and end properties on the range object passed in at any time to change the portion of the list you wish to be notified about.
-* `addObserverForKey( '[]', object: Object, method: String ) – register an observer to be notifed whenever the set of records in the query changes. Note, this does *not* fire just because a property on a record in the query changed – views should observe the records directly to detect this.
+* `addObserverForKey( '[]', object: Object, method: String )` – register an observer to be notifed whenever the set of records in the query changes. Note, this does *not* fire just because a property on a record in the query changed – views should observe the records directly to detect this.
 * `destroy()` – if you've finished with a query, call destroy to stop the store from continuing to keep it updated and to remove references to it from the store. This is important so you don't leak memory.
 
 ### Mail
