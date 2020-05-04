@@ -10,11 +10,16 @@
 
 ( function ( JMAP ) {
 
+const Class = O.Class;
+const Obj = O.Object;
+
+// ---
+
 const noop = function () {};
 
-const Sequence = O.Class({
+const Sequence = Class({
 
-    Extends: O.Object,
+    Extends: Obj,
 
     init: function () {
         this.queue = [];

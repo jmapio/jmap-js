@@ -151,6 +151,7 @@ const Thread = Class({
     messages: Record.toMany({
         recordType: Message,
         key: 'emailIds',
+        isNullable: false,
         noSync: true,
     }),
 

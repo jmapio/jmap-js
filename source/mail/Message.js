@@ -27,13 +27,6 @@ const mail = JMAP.mail;
 
 // ---
 
-const bodyType = {
-    'text/plain': 'text',
-    'text/enriched': 'text',
-    'text/richtext': 'text',
-    'text/html': 'html',
-};
-
 const parseStructure = function  ( parts, multipartType, inAlternative,
         htmlParts, textParts, fileParts ) {
 
@@ -45,13 +38,13 @@ const parseStructure = function  ( parts, multipartType, inAlternative,
     for ( i = 0; i < parts.length; i += 1 ) {
         var part = parts[i];
         var type = part.type;
-        var isTextOrHTML = false;
+        var isText = false;
         var isMultipart = false;
         var isImage = false;
         var isInline, subMultiType;
 
-        if ( bodyType[ type ] ) {
-            isTextOrHTML = true;
+        if ( type.startsWith( 'text/' ) ) {
+            isText = true;
         } else if ( type.startsWith( 'multipart/' ) ) {
             isMultipart = true;
         } else if ( type.startsWith( 'image/' ) ) {
@@ -61,7 +54,7 @@ const parseStructure = function  ( parts, multipartType, inAlternative,
         // Is this a body part rather than an attachment
         isInline =
             // Must be one of the allowed body types
-            ( isTextOrHTML || isImage ) &&
+            ( isText || isImage ) && type !== 'text/calendar' &&
             // Must not be explicitly marked as an attachment
             part.disposition !== 'attachment' &&
             // If multipart/related, only the first part can be inline
@@ -77,26 +70,26 @@ const parseStructure = function  ( parts, multipartType, inAlternative,
                 htmlParts, textParts, fileParts );
         } else if ( isInline ) {
             if ( multipartType === 'alternative' ) {
-                switch ( bodyType[ type ] ) {
-                case 'text':
-                    textParts.push( part );
-                    break;
-                case 'html':
+                if ( type === 'text/html' ) {
                     htmlParts.push( part );
-                    break;
-                default:
+                } else if ( isText && textParts.length === textLength ) {
+                    textParts.push( part );
+                } else if ( type === 'text/plain' ) {
+                    // We've found a text/plain but already chose a text part.
+                    // Replace it and move the other part to files instead.
+                    fileParts.push( textParts.pop() );
+                    textParts.push( part );
+                } else {
                     fileParts.push( part );
-                    break;
                 }
                 continue;
             } else if ( inAlternative ) {
-                switch ( bodyType[ type ] ) {
-                case 'text':
-                    htmlParts = null;
-                    break;
-                case 'html':
-                    textParts = null;
-                    break;
+                if ( isText ) {
+                    if ( type === 'text/html' ) {
+                        textParts = null;
+                    } else {
+                        htmlParts = null;
+                    }
                 }
             }
             if ( textParts ) {
@@ -163,6 +156,7 @@ const Message = Class({
         recordType: Mailbox,
         key: 'mailboxIds',
         Type: Object,
+        isNullable: false,
     }),
 
     keywords: attr( Object, {
@@ -358,7 +352,8 @@ const Message = Class({
 
     hasTextBody: function () {
         return this.get( 'bodyParts' ).text.some( function ( part ) {
-            return bodyType[ part.type ] === 'text';
+            const type = part.type;
+            return type.startsWith( 'text/' ) && type !== 'text/html';
         });
     }.property( 'bodyParts' ),
 

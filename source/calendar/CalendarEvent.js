@@ -234,6 +234,8 @@ const CalendarEvent = Class({
 
     // locale: attr( String ),
     // localizations: attr( Object ),
+    // NOTE: If adding support for localizations, you need to handle this in
+    // the mayPatchKey function too, because you can't patch a patch.
 
     // keywords: attr( Object ),
     // categories: attr( Object ),
@@ -765,9 +767,11 @@ const normaliseRecurrenceRule = function ( recurrenceRuleJSON ) {
     }
 };
 
-const mayPatchKey = function ( path, original, current ) {
-    if ( path.startsWith( 'recurrenceOverrides/' ) &&
-            ( original.excluded || current.excluded ) ) {
+const mayPatchKey = function ( path/*, original, current*/ ) {
+    // We can't patch inside a patch as there's no way to distinguish whether
+    // patch { "recurrenceOverrides/2000-01-01T00:00:00/key~1bar": null } is
+    // deleting "bar" from the master or deleting the key~1bar patch.
+    if ( path.startsWith( 'recurrenceOverrides/' ) ) {
         return false;
     }
     return true;

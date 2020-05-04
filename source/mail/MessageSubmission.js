@@ -242,9 +242,8 @@ mail.handle( MessageSubmission, {
                 update ? clone( update ) : {}
             );
             var onSuccessUpdateEmail = reqArgs.onSuccessUpdateEmail;
-            var onSuccessDestroyEmail = reqArgs.onSuccessDestroyEmail;
+            var updated = args.updated;
             var updates = {};
-            var destroyed = [];
             var emailId, storeKey, path, id, patch, data;
             for ( id in changes ) {
                 emailId = changes[ id ].emailId;
@@ -259,15 +258,18 @@ mail.handle( MessageSubmission, {
                     }
                     storeKey = store.getStoreKey( accountId, Message, emailId );
                 }
-                if ( onSuccessUpdateEmail &&
-                        ( patch = onSuccessUpdateEmail[ id ] )) {
+                if (
+                    updated &&
+                    updated[ emailId ] &&
+                    onSuccessUpdateEmail &&
+                    ( patch = onSuccessUpdateEmail[ id ] )
+                ) {
                     // If we've made further changes since this commit, bail
                     // out. This is just an optimisation, and we'll fetch the
                     // real changes from the source instead automatically if
                     // we don't do it.
                     if ( store.getStatus( storeKey ) !== READY ) {
-                        updates = null;
-                        break;
+                        continue;
                     }
                     data = store.getData( storeKey );
                     data = {
@@ -285,18 +287,19 @@ mail.handle( MessageSubmission, {
                     for ( path in patch ) {
                         applyPatch( data, path, patch[ path ] );
                     }
+                    delete updated[ emailId ];
                     updates[ emailId ] = data;
-                } else if ( onSuccessDestroyEmail &&
-                        onSuccessDestroyEmail.contains( id ) ) {
-                    destroyed.push( emailId );
                 }
             }
-            if ( updates ) {
-                store.sourceDidFetchUpdates( accountId,
-                    Message, [], destroyed, args.oldState, args.newState );
-                store.sourceDidFetchPartialRecords( accountId,
-                    Message, updates );
-            }
+            store.sourceDidFetchUpdates(
+                accountId,
+                Message,
+                updated && Object.keys( updated ),
+                args.destroyed,
+                args.oldState,
+                args.newState
+            );
+            store.sourceDidFetchPartialRecords( accountId, Message, updates );
             // And we invalidate all MessageList queries, as some may be
             // invalid and we don't know which ones.
             this.get( 'store' )

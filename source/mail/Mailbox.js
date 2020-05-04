@@ -26,16 +26,25 @@ const makeSetRequest = JMAP.Connection.makeSetRequest;
 
 // ---
 
+const roleSortOrder = {
+    inbox: 1,
+    snoozed: 2,
+    archive: 3,
+    drafts: 4,
+    xtemplates: 5,
+    sent: 6,
+    junk: 7,
+    trash: 8,
+    all: 9,
+};
+
 const bySortOrderRoleOrName = function ( a, b ) {
-    var aRole = a.role;
-    var bRole = b.role;
     return (
         a.sortOrder - b.sortOrder
     ) || (
-        aRole === 'inbox' ? -1 :
-        bRole === 'inbox' ? 1 :
-        aRole && !bRole ? -1 :
-        bRole && !aRole ? 1 :
+        ( roleSortOrder[ a.role ] || 99 ) -
+        ( roleSortOrder[ b.role ] || 99 )
+    ) || (
         i18n.compare( a.name, b.name )
     ) || (
         a.id < b.id ? -1 : 1
@@ -337,6 +346,7 @@ connection.handle( Mailbox, {
         this.didCommit( Mailbox, args );
     },
 });
+Mailbox.roleSortOrder = roleSortOrder;
 Mailbox.bySortOrderRoleOrName = bySortOrderRoleOrName;
 
 // --- Export

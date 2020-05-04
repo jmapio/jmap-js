@@ -660,9 +660,14 @@ const Connection = Class({
             handler = handlers[ response[0] ];
             if ( handler ) {
                 id = response[2];
-                request = remoteCalls[+id];
+                request = id && remoteCalls[+id] || null;
                 try {
-                    handler.call( this, response[1], request[0], request[1] );
+                    handler.call(
+                        this,
+                        response[1],
+                        request ? request[0] : '',
+                        request ? request[1] : {}
+                    );
                 } catch ( error ) {
                     RunLoop.didError( error );
                 }
@@ -1155,11 +1160,21 @@ const Connection = Class({
     },
 
     didFetchUpdates: function ( Type, args, hasDataForUpdated ) {
+        var created = args.created;
+        var updated = null;
+        if ( !hasDataForUpdated ) {
+            if ( updated ) {
+                updated = args.updated;
+            }
+            if ( created ) {
+                updated = updated ? updated.concat( created ) : created;
+            }
+        }
         this.get( 'store' )
             .sourceDidFetchUpdates(
                 args.accountId,
                 Type,
-                hasDataForUpdated ? null : args.updated || null,
+                updated,
                 args.destroyed || null,
                 args.oldState,
                 args.newState

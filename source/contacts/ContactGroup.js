@@ -50,6 +50,7 @@ const ContactGroup = Class({
     contacts: Record.toMany({
         recordType: Contact,
         key: 'contactIds',
+        isNullable: false,
         defaultValue: [],
         willSet: function () {
             return true;

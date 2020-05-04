@@ -559,12 +559,43 @@ const roleIndex = new O.Object({
 });
 store.on( Mailbox, roleIndex, 'clearIndex' );
 
-const getMailboxForRole = function ( accountId, role ) {
+const getMailboxForRole = function ( accountId, role, createWithProps ) {
     if ( !accountId ) {
         accountId = auth.get( 'primaryAccounts' )[ auth.MAIL_DATA ];
     }
     var accountIndex = roleIndex.getIndex()[ accountId ];
-    return accountIndex && accountIndex[ role ] || null;
+    var mailbox = accountIndex && accountIndex[ role ] || null;
+    if ( !mailbox && createWithProps ) {
+        // The other role names are not localised over IMAP, so I guess
+        // we don't with this one either?
+        var name = role.capitalise();
+        var nameClashes = store.getAll( Mailbox, data =>
+            data.accountId === accountId &&
+            !data.parentId &&
+            data.name.startsWith( name )
+        ).reduce( ( nameClashes, mailbox ) => {
+            var name = mailbox.get( 'name' );
+            nameClashes[ name ] = mailbox;
+            return nameClashes;
+        }, {} );
+        var index, property;
+        mailbox = nameClashes[ name ];
+        if ( mailbox ) {
+            index = 2;
+            while ( nameClashes[ name + ' ' + index ] ) {
+                index += 1;
+            }
+            mailbox.set( 'name', name + ' ' + index );
+        }
+        mailbox = new Mailbox( store )
+            .set( 'role', role )
+            .set( 'name', name );
+        for ( property in createWithProps ) {
+            mailbox.set( property, createWithProps[ property ] );
+        }
+        mailbox.saveToStore();
+    }
+    return mailbox;
 };
 
 // ---
@@ -1416,7 +1447,9 @@ Object.assign( connection, {
         var envelope = {
             mailFrom: {
                 email: auth.get( 'username' ),
-                parameters: null,
+                parameters: {
+                    resent: null,
+                },
             },
             rcptTo: to.map( function ( address ) {
                 return {

@@ -53,12 +53,15 @@ const MessageList = Class({
 
     sort: [{ property: 'receivedAt', isAscending: false }],
     collapseThreads: true,
+    findAllInThread: false,
 
     Type: Message,
 
     init: function ( options ) {
         this._snippets = {};
         this._snippetsNeeded = [];
+
+        this.threadIdToEmailIds = {};
 
         MessageList.parent.constructor.call( this, options );
     },
@@ -205,6 +208,7 @@ JMAP.mail.handle( MessageList, {
         var where = query.get( 'where' );
         var sort = query.get( 'sort' );
         var collapseThreads = query.get( 'collapseThreads' );
+        var findAllInThread = query.get( 'findAllInThread' );
         var canGetDeltaUpdates = query.get( 'canGetDeltaUpdates' );
         var queryState = query.get( 'queryState' );
         var request = query.sourceWillFetchQuery();
@@ -242,6 +246,7 @@ JMAP.mail.handle( MessageList, {
                 filter: where,
                 sort: sort,
                 collapseThreads: collapseThreads,
+                findAllInThread: findAllInThread,
                 sinceQueryState: queryState,
                 upToId: upToId ?
                     this.get( 'store' ).getIdFromStoreKey( upToId ) : null,
@@ -276,6 +281,7 @@ JMAP.mail.handle( MessageList, {
                 filter: where,
                 sort: sort,
                 collapseThreads: collapseThreads,
+                findAllInThread: findAllInThread,
                 position: start,
                 anchor: anchor,
                 anchorOffset: offset,
@@ -322,7 +328,7 @@ JMAP.mail.handle( MessageList, {
 
     'Email/query': function ( args, _, reqArgs ) {
         const query = this.get( 'store' ).getQuery( getId( reqArgs ) );
-        var total, hasTotal, numIds;
+        var total, hasTotal, numIds, threadIdToEmailIds;
         if ( query ) {
             if ( args.total === undefined ) {
                 total = query.get( 'length' );
@@ -340,6 +346,11 @@ JMAP.mail.handle( MessageList, {
             } else {
                 hasTotal = true;
             }
+            threadIdToEmailIds = args.threadIdToEmailIds;
+            if ( threadIdToEmailIds ) {
+                Object.assign( query.threadIdToEmailIds, threadIdToEmailIds );
+            }
+            query.set( 'error', null );
             query.set( 'hasTotal', hasTotal );
             query.set( 'canGetDeltaUpdates', args.canCalculateChanges );
             query.sourceDidFetchIds( args );
@@ -355,6 +366,7 @@ JMAP.mail.handle( MessageList, {
     'error_Email/query': function ( args, requestName, requestArgs ) {
         var query = this.get( 'store' ).getQuery( getId( requestArgs ) );
         if ( query ) {
+            query.set( 'error', args.type );
             query.sourceDidFetchIds({
                 ids: [],
                 position: 0,
@@ -366,6 +378,10 @@ JMAP.mail.handle( MessageList, {
     'Email/queryChanges': function ( args, _, reqArgs ) {
         const query = this.get( 'store' ).getQuery( getId( reqArgs ) );
         if ( query ) {
+            const threadIdToEmailIds = args.threadIdToEmailIds;
+            if ( threadIdToEmailIds ) {
+                Object.assign( query.threadIdToEmailIds, threadIdToEmailIds );
+            }
             args.upToId = reqArgs.upToId;
             query.sourceDidFetchUpdate( args );
         }

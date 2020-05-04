@@ -19,6 +19,8 @@ const StoreUndoManager = O.StoreUndoManager;
 
 const Contact = JMAP.Contact;
 const ContactGroup = JMAP.ContactGroup;
+const auth = JMAP.auth;
+const CONTACTS_DATA = JMAP.auth.CONTACTS_DATA;
 const store = JMAP.store;
 const contacts = JMAP.contacts;
 
@@ -102,13 +104,18 @@ const vips = new Obj({
     getGroup: function ( storeForContact, createIfNotFound ) {
         var group = this._group;
         var groupCacheState = this._groupCacheState;
+        var primaryAccountId;
         if ( groupCacheState === CACHED && ( group || !createIfNotFound ) ) {
             // Nothing to do
         } else if ( groupCacheState === REVALIDATE &&
                 group && group.is( READY ) ) {
             this._groupCacheState = CACHED;
         } else {
-            group = store.getOne( ContactGroup, data => data.uid === 'vips' );
+            primaryAccountId = auth.get( 'primaryAccounts' )[ CONTACTS_DATA ];
+            group = store.getOne( ContactGroup, data =>
+                data.accountId === primaryAccountId &&
+                data.uid === 'vips'
+            );
             if ( !group && createIfNotFound ) {
                 group = new ContactGroup( store )
                     .set( 'name', loc( 'VIPS' ) )
