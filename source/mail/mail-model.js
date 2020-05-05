@@ -902,7 +902,7 @@ Object.assign( connection, {
         var addMailboxOnlyIfNone = false;
         var isAddingToSnoozed = isSnoozedMailbox( addMailbox );
         var toCopy = {};
-        var now = FASTMAIL && ( new Date().toJSON() + 'Z' );
+        var now = new Date().toJSON() + 'Z';
         var accountId, fromAccountId, mailboxIds;
 
         if ( !addMailbox ) {
@@ -1055,13 +1055,11 @@ Object.assign( connection, {
                 willAdd
             );
             if ( willRemove ) {
-                if ( FASTMAIL ) {
-                    removedDates = clone( message.get( 'removedDates' ) );
-                    willRemove.forEach( mailbox => {
-                        removedDates[ mailbox.get( 'id' ) ] = now;
-                    });
-                    message.set( 'removedDates', removedDates );
-                }
+                removedDates = clone( message.get( 'removedDates' ) ) || {};
+                willRemove.forEach( mailbox => {
+                    removedDates[ mailbox.get( 'id' ) ] = now;
+                });
+                message.set( 'removedDates', removedDates );
             }
 
             if ( alreadyHasMailbox ) {

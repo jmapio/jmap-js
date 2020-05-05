@@ -91,7 +91,6 @@ const LocalFile = Class({
                     headers: {
                         'Authorization': auth.get( 'accessToken' ),
                     },
-                    withCredentials: true,
                     responseType: 'json',
                     data: this.file,
                 })
